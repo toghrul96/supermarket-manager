@@ -1,0 +1,21 @@
+<RCC>
+  <qresource prefix="icons">
+    <file>cart.ico</file>
+    <file>account_black.png</file>
+    <file>add_icon.png</file>
+    <file>cart.png</file>
+    <file>chart_blue.png</file>
+    <file>chart_gold.png</file>
+    <file>checkout_blue.png</file>
+    <file>checkout_gold.png</file>
+    <file>close_icon.png</file>
+    <file>data_blue.png</file>
+    <file>data_gold.png</file>
+    <file>exit_blue.png</file>
+    <file>exit_gold.png</file>
+    <file>menu_icon.png</file>
+    <file>subtract_icon.png</file>
+    <file>users_blue.png</file>
+    <file>users_gold.png</file>
+  </qresource>
+</RCC>
