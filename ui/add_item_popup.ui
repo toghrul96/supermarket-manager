@@ -1,0 +1,617 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>AddItemPopup</class>
+ <widget class="QDialog" name="AddItemPopup">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>514</width>
+    <height>733</height>
+   </rect>
+  </property>
+  <property name="sizePolicy">
+   <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+    <horstretch>0</horstretch>
+    <verstretch>0</verstretch>
+   </sizepolicy>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>514</width>
+    <height>733</height>
+   </size>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>514</width>
+    <height>733</height>
+   </size>
+  </property>
+  <property name="font">
+   <font>
+    <family>Segoe UI</family>
+    <bold>false</bold>
+   </font>
+  </property>
+  <property name="windowTitle">
+   <string>Add New Item</string>
+  </property>
+  <property name="windowIcon">
+   <iconset resource="../icons/resource.qrc">
+    <normaloff>:/icons/cart.png</normaloff>:/icons/cart.png</iconset>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">QMainWindow {
+background-color: qlineargradient(
+    x1:0, y1:0, x2:0, y2:1,
+    stop:0 #FFFFFF,
+    stop:1 #E8E8E8
+);
+}
+
+QLabel {
+	color: #34495e;
+	font-family: &quot;Segoe UI&quot;;
+	font-weight: medium;
+    font-size: 12pt;
+}
+
+
+QLineEdit {
+	border: none;
+	border-bottom: 1px solid #cccccc;
+
+}
+
+QLineEdit:focus {
+	border-bottom: 1px solid #34495e;
+
+}
+
+
+QPushButton {
+    background-color: #34495e;
+    color: white;
+    border: 2px solid #34495e;
+    border-radius: 5px;
+    font-size: 12pt;
+}
+
+QPushButton:hover {
+    background-color: #2c3e50;
+    border-color: #2c3e50;
+}
+
+QPushButton:pressed {
+    background-color: #22313f;
+    border-color: #22313f;
+}
+
+
+</string>
+  </property>
+  <layout class="QGridLayout" name="gridLayout_2">
+   <item row="0" column="0">
+    <widget class="QWidget" name="widget" native="true">
+     <layout class="QGridLayout" name="gridLayout">
+      <item row="0" column="1">
+       <spacer name="verticalSpacer">
+        <property name="orientation">
+         <enum>Qt::Orientation::Vertical</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>20</width>
+          <height>12</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item row="1" column="0">
+       <spacer name="horizontalSpacer">
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>0</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item row="1" column="1">
+       <layout class="QVBoxLayout" name="main_layout">
+        <property name="spacing">
+         <number>6</number>
+        </property>
+        <item>
+         <layout class="QVBoxLayout" name="verticalLayout_10">
+          <property name="spacing">
+           <number>8</number>
+          </property>
+          <property name="bottomMargin">
+           <number>16</number>
+          </property>
+          <item>
+           <layout class="QVBoxLayout" name="verticalLayout_3">
+            <item>
+             <widget class="QLabel" name="label">
+              <property name="text">
+               <string>Category:</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QComboBox" name="category_comboBox">
+              <property name="minimumSize">
+               <size>
+                <width>460</width>
+                <height>35</height>
+               </size>
+              </property>
+              <property name="font">
+               <font>
+                <pointsize>12</pointsize>
+               </font>
+              </property>
+              <property name="currentText">
+               <string/>
+              </property>
+              <property name="placeholderText">
+               <string>Select a category</string>
+              </property>
+              <item>
+               <property name="text">
+                <string>Dairy</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Bakery</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Meat</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Produce</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Frozen Foods</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Beverages</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Snacks</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Household</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Personal Care</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Health Care</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Baby Products</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Pet Supplies</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Electronics</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Clothing</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Stationery</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Garden</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Automotive</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Toys</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Kitchenware</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Cleaning Supplies</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Paper Products</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Confectionery</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Seafood</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Breakfast Foods</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Spices</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Grains</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Oils</string>
+               </property>
+              </item>
+              <item>
+               <property name="text">
+                <string>Canned Goods</string>
+               </property>
+              </item>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="verticalLayout">
+            <item>
+             <widget class="QLabel" name="item_name_label">
+              <property name="font">
+               <font>
+                <family>Segoe UI</family>
+                <pointsize>12</pointsize>
+                <bold>false</bold>
+               </font>
+              </property>
+              <property name="text">
+               <string>Item Name:</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLineEdit" name="item_name_lineEdit">
+              <property name="minimumSize">
+               <size>
+                <width>450</width>
+                <height>35</height>
+               </size>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>16777215</height>
+               </size>
+              </property>
+              <property name="font">
+               <font>
+                <pointsize>14</pointsize>
+               </font>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="verticalLayout_2">
+            <item>
+             <widget class="QLabel" name="barcode_label">
+              <property name="text">
+               <string>Barcode (EAN-13):</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLineEdit" name="barcode_lineEdit">
+              <property name="minimumSize">
+               <size>
+                <width>460</width>
+                <height>35</height>
+               </size>
+              </property>
+              <property name="font">
+               <font>
+                <pointsize>14</pointsize>
+               </font>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="verticalLayout_9">
+            <item>
+             <widget class="QLabel" name="batch_no_label">
+              <property name="text">
+               <string>Batch Number:</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLineEdit" name="batch_no_lineEdit">
+              <property name="minimumSize">
+               <size>
+                <width>460</width>
+                <height>35</height>
+               </size>
+              </property>
+              <property name="font">
+               <font>
+                <pointsize>14</pointsize>
+               </font>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="verticalLayout_4">
+            <item>
+             <widget class="QLabel" name="quantity_label">
+              <property name="text">
+               <string>Quantity:</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QSpinBox" name="quantity_spinBox">
+              <property name="minimumSize">
+               <size>
+                <width>460</width>
+                <height>30</height>
+               </size>
+              </property>
+              <property name="font">
+               <font>
+                <pointsize>14</pointsize>
+               </font>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="verticalLayout_5">
+            <item>
+             <widget class="QLabel" name="minimum_stock_label">
+              <property name="text">
+               <string>Minimum Stock:</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QSpinBox" name="minimum_stock_spinBox">
+              <property name="minimumSize">
+               <size>
+                <width>460</width>
+                <height>30</height>
+               </size>
+              </property>
+              <property name="font">
+               <font>
+                <pointsize>14</pointsize>
+               </font>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="verticalLayout_7">
+            <item>
+             <widget class="QLabel" name="cost_label">
+              <property name="text">
+               <string>Cost Per Unit:</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QDoubleSpinBox" name="cost_doubleSpinBox">
+              <property name="minimumSize">
+               <size>
+                <width>460</width>
+                <height>30</height>
+               </size>
+              </property>
+              <property name="font">
+               <font>
+                <pointsize>14</pointsize>
+               </font>
+              </property>
+              <property name="prefix">
+               <string>$ </string>
+              </property>
+              <property name="suffix">
+               <string/>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="verticalLayout_8">
+            <item>
+             <widget class="QLabel" name="price_label">
+              <property name="text">
+               <string>Price Per Unit:</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QDoubleSpinBox" name="price_doubleSpinBox">
+              <property name="minimumSize">
+               <size>
+                <width>460</width>
+                <height>30</height>
+               </size>
+              </property>
+              <property name="font">
+               <font>
+                <pointsize>14</pointsize>
+               </font>
+              </property>
+              <property name="prefix">
+               <string>$ </string>
+              </property>
+              <property name="suffix">
+               <string/>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="verticalLayout_6">
+            <item>
+             <widget class="QLabel" name="expiry_date_label">
+              <property name="text">
+               <string>Expiry Date (DD/MM/YYYY):</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QDateEdit" name="expiry_dateEdit">
+              <property name="minimumSize">
+               <size>
+                <width>460</width>
+                <height>30</height>
+               </size>
+              </property>
+              <property name="font">
+               <font>
+                <pointsize>14</pointsize>
+               </font>
+              </property>
+              <property name="dateTime">
+               <datetime>
+                <hour>0</hour>
+                <minute>0</minute>
+                <second>0</second>
+                <year>2024</year>
+                <month>12</month>
+                <day>28</day>
+               </datetime>
+              </property>
+              <property name="displayFormat">
+               <string>dd/MM/yyyy</string>
+              </property>
+              <property name="calendarPopup">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QPushButton" name="add_item_btn">
+          <property name="minimumSize">
+           <size>
+            <width>460</width>
+            <height>45</height>
+           </size>
+          </property>
+          <property name="font">
+           <font>
+            <family>Segoe UI</family>
+            <pointsize>12</pointsize>
+            <bold>true</bold>
+           </font>
+          </property>
+          <property name="text">
+           <string>Add Item</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item row="1" column="2">
+       <spacer name="horizontalSpacer_2">
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>8</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item row="2" column="1">
+       <spacer name="verticalSpacer_2">
+        <property name="orientation">
+         <enum>Qt::Orientation::Vertical</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>20</width>
+          <height>12</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources>
+  <include location="../icons/resource.qrc"/>
+ </resources>
+ <connections/>
+</ui>
