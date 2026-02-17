@@ -81,7 +81,7 @@ class AddNewItem(QDialog):
 class AddNewUser(QDialog):
     """Dialog to add users with input validation and secure storage."""
     
-    def __init__(self, filename):
+    def __init__(self, user_data=None):
         """
         Initialize the Add New User dialog.
 
@@ -89,7 +89,12 @@ class AddNewUser(QDialog):
             filename (str): Path to the user data CSV file.
         """
         super().__init__()
-        self.user_data = UserDatabase(filename)
+
+        # Use passed instance if available, otherwise create new
+        if user_data:
+            self.user_data = user_data  # Use existing instance with session
+        else:
+            self.user_data = UserDatabase()
 
         # Initialize UI components
         self.ui = Ui_AddUserPopUp()
@@ -108,7 +113,7 @@ class AddNewUser(QDialog):
         role = self.ui.role_cb.currentText()  # Predefined roles in comboBox
 
         try:
-            # Pass data to user handler to validate to save it securely
+            # Pass data to user handler to validate and save securely
             self.user_data.add_user(username, password, role)
         except ValueError as e:
             # Show specific validation errors to user
@@ -231,20 +236,18 @@ class UpdateUser(AddNewUser):
     and adjusts the interface to reflect an update operation instead of new user creation.
     """
     
-    def __init__(self, filename):
+    def __init__(self, user_data=None):
         """
         Initialize the update user dialog with inherited UI and adjustments.
 
         Args:
-            filename (str): Path to the user data storage file.
+            user_data (UserDatabase, optional): Existing authenticated database instance.
         """
-        super().__init__(filename)
-        self.user_data = UserDatabase(filename)
-        self.filename = filename
+        super().__init__(user_data=user_data)
 
         # Modify UI for update context
         self.setWindowTitle("Update User")
-        self.ui.username_label.hide()  # Immutable field
+        self.ui.username_label.hide()  # Username is immutable - cannot be changed
         self.ui.username_lineEdit_1.hide()
         self.ui.password_label.setText("New Password:")  # Clarify action
         self.ui.role_label.setText("New Role:")  # Clarify action
@@ -256,22 +259,20 @@ class UpdateUser(AddNewUser):
 
     def perform_update(self, keyword):
         """
-        Load existing user data and prepare the form for editing.
+        Load current user data and prepare the form for updating.
 
         Args:
-            keyword (str): The username of the user to be updated.
+            keyword (str): The username of the user to update.
         """
-        # Load current user data
-        with open(self.filename, "r", newline="") as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                if row.get("Username") == keyword:
-                    self.ui.role_cb.setCurrentText(row.get("Role")) # type: ignore                   
-        self.ui.password_lineEdit_1.clear()  # Never show existing password
-        
-        # Reconfigure button for update action
+        # Pre-fill current role from database
+        role = self.user_data.get_role(keyword)
+        if role:
+            self.ui.role_cb.setCurrentText(role.capitalize())
+        self.ui.password_lineEdit_1.clear()
+
+        # Reconfigure button for update action (disconnect any previous handlers)
         try:
-            self.ui.add_user_btn.clicked.disconnect()  # Clear inherited handler
+            self.ui.add_user_btn.clicked.disconnect()
         except TypeError:
             pass
         self.ui.add_user_btn.clicked.connect(lambda: self.handle_update_user(keyword))

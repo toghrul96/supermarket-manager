@@ -1639,21 +1639,18 @@ class Ui_MainWindow(object):
         self.verticalLayout.addLayout(self.horizontalLayout_3)
 
         self.user_table = QTableWidget(self.users_page)
-        if (self.user_table.columnCount() < 4):
-            self.user_table.setColumnCount(4)
+        if (self.user_table.columnCount() < 3):
+            self.user_table.setColumnCount(3)
         __qtablewidgetitem49 = QTableWidgetItem()
         __qtablewidgetitem49.setFont(font2);
         __qtablewidgetitem49.setBackground(QColor(255, 255, 255));
         self.user_table.setHorizontalHeaderItem(0, __qtablewidgetitem49)
-        __qtablewidgetitem50 = QTableWidgetItem()
-        __qtablewidgetitem50.setFont(font2);
-        self.user_table.setHorizontalHeaderItem(1, __qtablewidgetitem50)
         __qtablewidgetitem51 = QTableWidgetItem()
         __qtablewidgetitem51.setFont(font2);
-        self.user_table.setHorizontalHeaderItem(2, __qtablewidgetitem51)
+        self.user_table.setHorizontalHeaderItem(1, __qtablewidgetitem51)
         __qtablewidgetitem52 = QTableWidgetItem()
         __qtablewidgetitem52.setFont(font2);
-        self.user_table.setHorizontalHeaderItem(3, __qtablewidgetitem52)
+        self.user_table.setHorizontalHeaderItem(2, __qtablewidgetitem52)
         self.user_table.setObjectName(u"user_table")
         self.user_table.setMinimumSize(QSize(990, 490))
         self.user_table.setFont(font15)
@@ -2032,11 +2029,9 @@ class Ui_MainWindow(object):
         ___qtablewidgetitem49 = self.user_table.horizontalHeaderItem(0)
         ___qtablewidgetitem49.setText(QCoreApplication.translate("MainWindow", u"Username", None));
         ___qtablewidgetitem50 = self.user_table.horizontalHeaderItem(1)
-        ___qtablewidgetitem50.setText(QCoreApplication.translate("MainWindow", u"Password", None));
+        ___qtablewidgetitem50.setText(QCoreApplication.translate("MainWindow", u"Role", None));
         ___qtablewidgetitem51 = self.user_table.horizontalHeaderItem(2)
-        ___qtablewidgetitem51.setText(QCoreApplication.translate("MainWindow", u"Role", None));
-        ___qtablewidgetitem52 = self.user_table.horizontalHeaderItem(3)
-        ___qtablewidgetitem52.setText(QCoreApplication.translate("MainWindow", u"Created at", None));
+        ___qtablewidgetitem51.setText(QCoreApplication.translate("MainWindow", u"Created at", None));
         self.username_search_lineEdit.setInputMask("")
         self.username_search_lineEdit.setText("")
         self.username_search_lineEdit.setPlaceholderText(QCoreApplication.translate("MainWindow", u"Enter a Username to Search...", None))

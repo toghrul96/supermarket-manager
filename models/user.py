@@ -1,4 +1,3 @@
-import csv 
 import os
 import re
 import bcrypt
@@ -6,47 +5,25 @@ from datetime import date
 from dotenv import load_dotenv
 from supabase import create_client
 
-class UserDatabase:
+class UserDatabase():
     """Secure user management system with role-based access control and password hashing."""
     
-    def __init__(self, filename):
-        """
-        Initialize the user database with file storage and predefined roles.
-
-        Args:
-            filename (str): The path to the CSV file for user data storage.
-        """
-        self.filename = filename
-        # Define CSV structure for consistent user records
-        self.fieldnames = ["Username", "Password", "Role", "Created At"]
-        # Predefined roles enforce access control hierarchy
-        self.roles = ["Admin", "Manager", "Cashier"]
-
-        # Load environment variables from .env file
+    def __init__(self, filename=None):
+        """Initialize user database with Supabase connection."""
         load_dotenv()
-        # Read credentials from .env
+        
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_KEY")
-        # Check if credentials exist
+        
         if not supabase_url or not supabase_key:
             raise ValueError("Missing Supabase credentials in .env file")
-        # Create Supabase client
+        
+        # Initialize Supabase client for auth and data operations
         self.supabase = create_client(supabase_url, supabase_key)
-
-        # Ensure the folder exists before file creation
-        folder = os.path.dirname(self.filename)
-        if folder and not os.path.exists(folder):
-            os.makedirs(folder)
-        # Initialize data file with headers if missing
-        if not os.path.exists(self.filename):
-            with open(self.filename, "w", newline="") as file:
-                writer = csv.DictWriter(file, fieldnames=self.fieldnames)
-                writer.writeheader()
-            # Add default user
-            default_user = UserValidator("dev54321", "dev54321")
-            created_at = date.today().strftime("%d/%m/%Y")
-            self.__save_user(default_user, "Admin", created_at)
-
+        
+        # Predefined roles enforce access control hierarchy
+        self.roles = ["Admin", "Manager", "Cashier"]
+       
     def add_user(self, username, password, role):
         """
         Securely register a new user with input validation and password hashing.
@@ -58,21 +35,72 @@ class UserDatabase:
         """
         # Validate credentials and normalize inputs
         user = UserValidator(username, password)
-        role = role.capitalize()  # Standardize role capitalization
+        role = role.capitalize()
 
         # Enforce role-based access control
         if role not in self.roles:
             raise ValueError(f"Invalid role: '{role}'. Must be one of: {', '.join(self.roles)}")
 
+        # Convert username to email format for Supabase Auth
+        # Users only see/use usernames, email is internal requirement
+        email = f"{user.username}@supermarket.local"
+
         # Prevent duplicate accounts
-        if self.username_exist(user.username):
-            raise ValueError("Username already taken")
+        try:
+            response = self.supabase.table("users").select("username").eq(
+                "username", user.username
+            ).execute()
+            if response.data and len(response.data) > 0:
+                raise ValueError("Username already taken")
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f"Failed to check username: {str(e)}")
         
-        # Record account creation date for auditing
-        created_at = date.today().strftime("%d/%m/%Y")
-    
-        # Securely store user credentials
-        self.__save_user(user, role, created_at)
+        try:
+            # Save current admin session before creating new user
+            # sign_up() temporarily switches to new user's session
+            admin_session = self.supabase.auth.get_session()
+            if not admin_session:
+                raise ValueError("No admin session found - please log in again")
+            
+            # Create user in Supabase Auth (handles password hashing)
+            auth_response = self.supabase.auth.sign_up({
+                "email": email,
+                "password": password,
+                "options": {
+                    "data": {
+                        "username": user.username
+                    }
+                }
+            })
+            
+            if not auth_response.user:
+                raise ValueError("Failed to create auth user")
+            
+            new_user_id = auth_response.user.id
+            
+            # Restore admin session immediately after user creation
+            # This ensures the INSERT operation runs with admin privileges
+            self.supabase.auth.set_session(
+                admin_session.access_token,
+                admin_session.refresh_token
+            )
+            
+            # Insert user into custom users table with role information
+            self.supabase.table("users").insert({
+                "id": new_user_id,
+                "username": user.username,
+                "role": role.lower(),
+            }).execute()
+            
+        except ValueError:
+            raise
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "already registered" in error_msg or "user already registered" in error_msg:
+                raise ValueError("Username already taken (please contact admin to resolve)")
+            raise ValueError(f"Failed to create user: {str(e)}")
 
     def update_user(self, username, new_password, new_role):
         """
@@ -83,30 +111,28 @@ class UserDatabase:
             new_password (str): New password to hash and store.
             new_role (str): New role to assign to the user.
         """
-        updated = False  # Track mutation success
-        # Re-validate credentials even for updates
+        # Re-validate credentials for updates
         user = UserValidator(username, new_password)
+        new_role = new_role.capitalize()
 
-        # Read all users for in-memory update
-        with open(self.filename, "r", newline="") as file:
-            reader = csv.DictReader(file)
-            users = list(reader)
+        # Enforce role-based access control
+        if new_role not in self.roles:
+            raise ValueError(f"Invalid role: '{new_role}'. Must be one of: {', '.join(self.roles)}")
 
-            # Locate and update user record
-            for row in users:
-                if row.get("Username") == username:
-                    row["Password"] = user.password  # Store newly hashed password
-                    row["Role"] = new_role  # Update permissions
-                    updated = True
+        try:
+            # Update role in Supabase users table
+            result = self.supabase.table("users").update({
+                "role": new_role.lower()
+            }).eq("username", username).execute()
 
-        if not updated:
-            raise ValueError(f"User '{username}' not found.")
+            # Check if user was found and updated
+            if not result.data:
+                raise ValueError(f"User '{username}' not found.")
 
-        # Atomic write operation prevents corruption
-        with open(self.filename, "w", newline="") as file:
-            writer = csv.DictWriter(file, self.fieldnames)
-            writer.writeheader()
-            writer.writerows(users)
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f"Failed to update user: {str(e)}")
 
     def search(self, keyword):
         """
@@ -114,42 +140,54 @@ class UserDatabase:
 
         Args:
             keyword (str): Partial username to search for.
+
+        Returns:
+            list: List of matching user records as lists.
         """
-        keyword = keyword.lower()
-        matched_users = []
+        try:
+            # Query Supabase for users matching the keyword prefix
+            response = self.supabase.table("users").select("*").ilike(
+                "username", f"{keyword}%"
+            ).execute()
 
-        with open(self.filename, "r", newline="") as file:
-            reader = csv.reader(file)
-            users = list(reader)[1:]  # Skip header
+            # Convert each row dict to a list for UI compatibility
+            result = []
+            for row in (response.data or []):
+                if isinstance(row, dict):  # Type guard for Pylance
+                    result.append(list(row.values()))
+            return result
 
-            # Simple prefix matching for responsive UI
-            for row in users:
-                if row[0].startswith(keyword):
-                    matched_users.append(row)
-
-        return matched_users
+        except Exception as e:
+            raise ValueError(f"Search failed: {str(e)}")
 
     def delete(self, username):
         """
-        Delete a user account by username, removing all associated data.
+        Delete a user account by username.
 
         Args:
             username (str): Username of the account to delete.
         """
-        # Filter out target user while reading
-        with open(self.filename, "r", newline="") as file:
-            reader = csv.DictReader(file)
-            users = [row for row in reader if row.get("Username") != username]
+        try:
+            # Normalize username to match stored format
+            username_norm = username.strip().lower()
 
-        # Rewrite remaining users
-        with open(self.filename, "w", newline="") as file:
-            writer = csv.DictWriter(file, fieldnames=self.fieldnames)
-            writer.writeheader()
-            writer.writerows(users)
+            # Delete user from Supabase users table
+            result = self.supabase.table("users").delete().eq(
+                "username", username_norm
+            ).execute()
+
+            # If no row is returned, the user does not exist
+            if not result.data:
+                raise ValueError(f"User '{username}' not found.")
+
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f"Failed to delete user: {str(e)}")
 
     def authenticate_user(self, username_input, password_input):
         """
-        Verify user credentials securely using bcrypt hashing.
+        Verify user credentials using Supabase Auth.
 
         Args:
             username_input (str): Username entered by the user.
@@ -159,94 +197,95 @@ class UserDatabase:
             bool: True if authentication succeeds.
         """
         try:
-            # Query user from Supabase
-            response = self.supabase.table("users").select(
-                "username, password"
-            ).eq("username", username_input).execute()
+            # Normalize username to lowercase and remove whitespace
+            username_input = username_input.lower().strip()
             
-            # Check if user exists
-            if not response.data or len(response.data) == 0:
-                raise ValueError("Username does not exist.")
+            # Convert username to email format for Supabase Auth
+            # Users only see/use usernames, email is internal requirement
+            email = f"{username_input}@supermarket.local"
             
-            # Get the user record
-            user = response.data[0]
+            # Authenticate with Supabase Auth
+            # Supabase handles secure password comparison and session creation
+            auth_response = self.supabase.auth.sign_in_with_password({
+                "email": email,
+                "password": password_input
+            })
             
-            # Validate user data exists
-            if not isinstance(user, dict):
-                raise ValueError("Invalid user data.")
+            # Verify authentication was successful
+            if not auth_response.user:
+                raise ValueError("Login failed")
             
-            # Get stored password
-            stored_password = user.get("password")
-            if not stored_password or not isinstance(stored_password, str):
-                raise ValueError("Invalid user data.")
+            # Verify session was created (required for subsequent authenticated requests)
+            if not auth_response.session:
+                raise ValueError("No session returned from authentication")
             
-            # Use bcrypt for secure password comparison (prevents timing attacks)
-            if bcrypt.checkpw(password_input.encode(), stored_password.encode()):
-                return True
-            else:
-                raise ValueError("Incorrect password.")
-                
-        except ValueError:
-            # Re-raise ValueError for expected errors (wrong password, no user)
-            raise
+            return True
+            
         except Exception as e:
-            # Catch any database connection or unexpected errors
-            raise ValueError(f"Authentication failed: {str(e)}")
+            error_msg = str(e).lower()
+            if "invalid login" in error_msg or "invalid credentials" in error_msg:
+                raise ValueError("Incorrect password.")
+            elif "email not confirmed" in error_msg:
+                raise ValueError("Account not confirmed. Contact your administrator.")
+            else:
+                raise ValueError(f"Login error: {str(e)}")
 
     def username_exist(self, username):
         """
-        Check if a username already exists in the user database.
+        Check whether a username already exists in the database.
 
         Args:
             username (str): Username to check.
 
         Returns:
-            bool: True if username exists, False otherwise.
+            bool: True if the username exists, False otherwise.
         """
-        with open(self.filename, "r", newline="") as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                if row.get("Username") == username:
-                    return True       
-        return False
+        try:
+            # Normalize username to match stored format
+            username_norm = username.strip().lower()
 
-    def __save_user(self, user, role, creation_date):
-        """
-        Save a new user record securely to the CSV file.
+            # Query Supabase for the username
+            response = self.supabase.table("users").select("username").eq(
+                "username", username_norm
+            ).execute()
 
-        Args:
-            user (UserValidator): Validated user object with hashed password.
-            role (str): User role to assign.
-            creation_date (str): Date string when the user was created.
-        """
-        with open(self.filename, "a", newline="") as file:
-            writer = csv.DictWriter(file, self.fieldnames)
-            writer.writerow({
-                "Username": user.username, 
-                "Password": user.password,  # Already hashed
-                "Role": role, 
-                "Created At": creation_date
-            })
+            # Return True if any row is found
+            return bool(response.data)
+
+        except Exception as e:
+            raise ValueError(f"Failed to check username existence: {str(e)}")
 
     def count_users(self, role=None):
         """
         Count users in the database, optionally filtered by role.
 
         Args:
-            role (str, optional): Role to filter by (case-insensitive). Counts all users if None.
+            role (str, optional): Role to filter by (case-insensitive).
+                                  If None, counts all users.
 
         Returns:
             int: Number of users matching the criteria.
         """
-        total = 0
-        with open(self.filename, "r", newline="") as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                if not role:  # Total user count
-                    total += 1
-                elif row.get("Role").lower() == role.lower():  # type: ignore
-                    total += 1
-        return total
+        try:
+            if role:
+                # Normalize role to match stored format
+                role_norm = role.strip().lower()
+
+                # Count users filtered by role
+                response = self.supabase.table("users").select(
+                    "username", count="exact" # type: ignore
+                ).eq("role", role_norm).execute()
+            else:
+                # Count all users
+                response = self.supabase.table("users").select(
+                    "username", count="exact" # type: ignore
+                ).execute()
+
+            # Return count from Supabase response
+            return response.count or 0
+
+        except Exception as e:
+            raise ValueError(f"Failed to count users: {str(e)}")
 
     def get_role(self, username):
         """
@@ -258,11 +297,23 @@ class UserDatabase:
         Returns:
             str or None: Role string if found, otherwise None.
         """
-        with open(self.filename, "r", newline="") as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                if row["Username"].strip().lower() == username.strip().lower():
-                    return row["Role"]
+        try:
+            # Normalize username to match stored format
+            username_norm = username.strip().lower()
+
+            # Query role for the given username
+            response = self.supabase.table("users").select("role").eq(
+                "username", username_norm
+            ).execute()
+
+            # Return role if user exists
+            if response.data and isinstance(response.data[0], dict):
+                return str(response.data[0].get("role"))
+
+            return None
+
+        except Exception as e:
+            raise ValueError(f"Failed to retrieve user role: {str(e)}")
 
 
 class UserValidator:

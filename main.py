@@ -11,7 +11,7 @@ from popups import (AddNewUser, UpdateUser, AddNewItem, UpdateItem, DiscountItem
 import csv
 from decimal import Decimal, InvalidOperation
 
-USER_DATA = "data/user_data.csv"
+USER_DATA = "users"
 INVENTORY_DATA = "data/inventory_data.csv"
 SALES_DATA = "data/sales_data.csv"
 
@@ -24,7 +24,7 @@ class MainWindow(QMainWindow):
     to their logic, and loading user, inventory, and sales data. It manages navigation,
     popups, checkout processing, filtering, and reports.
     """
-    def __init__(self, username):
+    def __init__(self, username, user_data):
         """
         Initialize the main window with UI setup, data connections, and signal bindings.
 
@@ -35,8 +35,8 @@ class MainWindow(QMainWindow):
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
 
-        # Initialize user identity and apply role-based access controls
-        self.user_data = UserDatabase(USER_DATA)
+        # Use the passed user_data instance (already logged in)
+        self.user_data = user_data
         self.username = username
         self.role = self.user_data.get_role(self.username)
         self.set_user_access(self.role)
@@ -46,8 +46,8 @@ class MainWindow(QMainWindow):
         self.sales_data = SalesData(SALES_DATA)
 
         # Initialize popup windows for user, item, and account operations
-        self.add_user_popup = AddNewUser(USER_DATA)
-        self.update_user_popup = UpdateUser(USER_DATA)
+        self.add_user_popup = AddNewUser(user_data=self.user_data)
+        self.update_user_popup = UpdateUser(user_data=self.user_data)
         self.add_item_popup = AddNewItem(INVENTORY_DATA)
         self.update_item_popup = UpdateItem(INVENTORY_DATA)
         self.account_popup = AccountInfo(self.username, self.role)
@@ -75,11 +75,11 @@ class MainWindow(QMainWindow):
 
         # User management buttons
         self.ui.add_user_btn.clicked.connect(
-            lambda: self.add_popup_ui(self.add_user_popup, self.ui.user_table, USER_DATA))
+            lambda: self.add_popup_ui(self.add_user_popup, self.ui.user_table, USER_DATA, ["username", "role", "created_at"]))
         self.ui.delete_user_btn.clicked.connect(
-            lambda: self.delete_ui(self.user_data, self.ui.user_table, USER_DATA))
+            lambda: self.delete_ui(self.user_data, self.ui.user_table, USER_DATA, ["username", "role", "created_at"]))
         self.ui.update_user_btn.clicked.connect(
-            lambda: self.update_ui(self.update_user_popup, self.ui.user_table, USER_DATA))
+            lambda: self.update_ui(self.update_user_popup, self.ui.user_table, USER_DATA, ["username", "role", "created_at"]))
         self.ui.username_search_lineEdit.textChanged.connect(
             lambda: self.search_ui(self.user_data, self.ui.user_table, USER_DATA, self.ui.username_search_lineEdit))
         self.ui.clear_user_tb_btn.clicked.connect(
@@ -138,11 +138,11 @@ class MainWindow(QMainWindow):
 
         # Table setup and data loading
         self.set_table(self.ui.user_table)
-        self.load_csv_to_table(self.ui.user_table, USER_DATA)
+        self.load_table(self.ui.user_table, "users", ["username", "role", "created_at"])
         self.set_table(self.ui.inventory_table)
-        self.load_csv_to_table(self.ui.inventory_table, INVENTORY_DATA)
+        self.load_table(self.ui.inventory_table, INVENTORY_DATA)
         self.set_table(self.ui.sales_history_table)
-        self.load_csv_to_table(self.ui.sales_history_table, SALES_DATA)
+        self.load_table(self.ui.sales_history_table, SALES_DATA)
         self.set_table(self.ui.sales_summary_table)
         self.filter_sales_summary_table()
         self.set_table(self.ui.top_products_table)
@@ -154,7 +154,6 @@ class MainWindow(QMainWindow):
         font = QFont()
         font.setPointSize(12)
         self.ui.user_table.verticalHeader().setFont(font)
-        self.ui.user_table.setColumnHidden(1, True)  # Hide password
         self.ui.inventory_table.verticalHeader().setFont(font)
         self.ui.sales_history_table.verticalHeader().setFont(font)
         self.ui.sales_summary_table.verticalHeader().setFont(font)
@@ -588,7 +587,7 @@ class MainWindow(QMainWindow):
             self.load_checkout_table()
             self.checkout_get_total()
             # Refresh inventory display
-            self.load_csv_to_table(self.ui.inventory_table, INVENTORY_DATA)
+            self.load_table(self.ui.inventory_table, INVENTORY_DATA)
             self.set_header_info_texts()
             self.ui.barcode_lineEdit.setFocus()
             # Update all reports
@@ -620,7 +619,7 @@ class MainWindow(QMainWindow):
             popup = DiscountItem(INVENTORY_DATA, barcode, batch_number)
             popup.exec()
             # Refresh inventory after discount change
-            self.load_csv_to_table(self.ui.inventory_table, INVENTORY_DATA)
+            self.load_table(self.ui.inventory_table, INVENTORY_DATA)
             self.set_header_info_texts()
         else:
             QMessageBox.warning(self, "No Selection", "Select a row before applying discount.")
@@ -710,104 +709,98 @@ class MainWindow(QMainWindow):
             self.ui.top_employees_table.setItem(row_index, 3, QTableWidgetItem(str(row[2])))         # Items sold
             self.ui.top_employees_table.setItem(row_index, 4, QTableWidgetItem(f"${row[3]:,}"))      # Total revenue
 
-    def add_popup_ui(self, popup_obj, table_widget, csv_file_path):
+    def add_popup_ui(self, popup_obj, table_widget, csv_file_path, columns=None):
         """
         Show the add popup and reload the table after adding.
         
         Args:
             popup_obj: The popup window object to show
             table_widget: The table widget to reload after adding
-            csv_file_path: Path to the CSV file to load into the table
+            csv_file_path: Path to the CSV file or table name to load into the table
+            columns (list, optional): List of column names to select in order (Supabase tables only)
         """
         # Display add popup window
         popup_obj.exec()
-        # Reload the table to reflect changes
-        self.load_csv_to_table(table_widget, csv_file_path)
-        self.set_header_info_texts()  # Update summary information
-        self.inventory_data.update_item_statuses()
+        # Reload the table to reflect the newly added record
+        self.load_table(table_widget, csv_file_path, columns)
+        self.set_header_info_texts()  # Update summary counts and values
+        self.inventory_data.update_item_statuses()  # Refresh inventory statuses
 
-    def update_ui(self, popup_obj, table_widget, csv_file_path):
+    def update_ui(self, popup_obj, table_widget, csv_file_path, columns=None):
         """
         Show the update popup for the selected item and reload the table.
         
         Args:
             popup_obj: The popup window object to show
             table_widget: The table widget containing the item to update
-            csv_file_path: Path to the CSV file to load into the table
+            csv_file_path: Path to the CSV file or table name to load into the table
+            columns (list, optional): List of column names to select in order (Supabase tables only)
         """
         # Get the index of the currently selected row in the table
         selected_row = table_widget.currentRow()
+
         # Proceed only if a row is selected
         if selected_row != -1:
-            # Determine which table is being updated
+            # Determine which table is being updated and get the appropriate key
             if table_widget == self.ui.user_table:
-                # For the user table, use the username as the key
-                keyword = table_widget.item(selected_row, 0).text()
+                keyword = table_widget.item(selected_row, 0).text()  # Username as key
             elif table_widget == self.ui.inventory_table:
-                # For the inventory table, use the batch number as the key
-                keyword = table_widget.item(selected_row, 4).text()
+                keyword = table_widget.item(selected_row, 4).text()  # Batch number as key
 
-            # Open the update dialog for the selected item
+            # Open the update dialog pre-filled with the selected item's data
             popup_obj.perform_update(keyword)  # type: ignore
             popup_obj.exec()
 
-            # Refresh the internal data statuses after update
+            # Refresh inventory statuses after update
             self.inventory_data.update_item_statuses()
-            # Reload the table to reflect changes
-            self.load_csv_to_table(table_widget, csv_file_path)
-            self.set_header_info_texts() # Update summary information
+            # Reload the table to reflect the updated record
+            self.load_table(table_widget, csv_file_path, columns)
+            self.set_header_info_texts()  # Update summary counts and values
 
-            # Clear the selection to avoid confusion after reload
+            # Clear selection to avoid confusion after reload
             table_widget.clearSelection()
 
         else:
-            # Alert the user if no row was selected
             QMessageBox.warning(self, "No Selection", "Select a row before updating.")
 
-    def delete_ui(self, data_obj, table_widget, csv_file_path):
+    def delete_ui(self, data_obj, table_widget, csv_file_path, columns=None):
         """
         Delete the selected item after confirmation and reload the table.
         
         Args:
             data_obj: The data handler object (UserDatabase or InventoryData)
             table_widget: The table widget containing the item to delete
-            csv_file_path: Path to the CSV file to load into the table
+            csv_file_path: Path to the CSV file or table name to load into the table
+            columns (list, optional): List of column names to select in order (Supabase tables only)
         """
         # Get the index of the currently selected row in the table
         selected_row = table_widget.currentRow()
 
         # Proceed only if a row is selected
         if selected_row != -1:
-            # Determine which table is being updated
-            if table_widget == self.ui.user_table: 
-                # For the user table, use the username as the key
-                keyword = table_widget.item(selected_row, 0).text()
-                # Set info text for user deletation
+            # Determine which table is being deleted from and get the appropriate key
+            if table_widget == self.ui.user_table:
+                keyword = table_widget.item(selected_row, 0).text()  # Username as key
                 info_text = f"user '{keyword}'"
             elif table_widget == self.ui.inventory_table:
-                # For the inventory table, use the batch number as the key
-                keyword = table_widget.item(selected_row, 4).text() 
+                keyword = table_widget.item(selected_row, 4).text()  # Batch number as key
                 item_name = table_widget.item(selected_row, 1).text()  # type: ignore
-                # Set info text for item deletation
                 info_text = f"item '{item_name}' with batch number {keyword}"
 
-            # Get confirmation
-            confirm = QMessageBox.question(self, "Confirm Delete", 
-                      f"Are you sure you want to remove the {info_text}?") #type: ignore
-            
-            if confirm == QMessageBox.StandardButton.Yes:
-                # Remove it from the CSV file
-                data_obj.delete(keyword) #type: ignore
-                # Reload the table
-                self.load_csv_to_table(table_widget, csv_file_path)
-                self.set_header_info_texts()
-                # Clear row selection
-                table_widget.clearSelection()
-                # Display information message
-                QMessageBox.information(self, "Deleted", 
-                f"The {info_text} was removed successfully.") #type: ignore
+            # Ask for confirmation before deleting
+            confirm = QMessageBox.question(self, "Confirm Delete",
+                    f"Are you sure you want to remove the {info_text}?")  # type: ignore
 
-        # If no row is selected display a warning message
+            if confirm == QMessageBox.StandardButton.Yes:
+                # Delete the record via the data handler
+                data_obj.delete(keyword)  # type: ignore
+                # Reload the table to reflect the deletion
+                self.load_table(table_widget, csv_file_path, columns)
+                self.set_header_info_texts()  # Update summary counts and values
+                table_widget.clearSelection()  # Clear selection after reload
+                QMessageBox.information(self, "Deleted",
+                f"The {info_text} was removed successfully.")  # type: ignore
+
         else:
             QMessageBox.warning(self, "No Selection", "Select a row before deleting.")
 
@@ -827,7 +820,7 @@ class MainWindow(QMainWindow):
         # Show all data if search box is empty
         if keyword == "":
             # Load the entire table
-            self.load_csv_to_table(table_widget, csv_file_path)
+            self.load_table(table_widget, csv_file_path)
             return
 
         # Get matching data as a list
@@ -850,7 +843,7 @@ class MainWindow(QMainWindow):
             lineEdit: The QLineEdit widget to clear
         """
         # Reload the table
-        self.load_csv_to_table(table_widget, csv_file_path)
+        self.load_table(table_widget, csv_file_path)
         lineEdit.clear()  # Clear search input
 
     def list_by_status(self, status):
@@ -902,26 +895,52 @@ class MainWindow(QMainWindow):
         self.ui.managers_lbl.setText(f"{self.user_data.count_users('Manager')}")
         self.ui.cashiers_lbl.setText(f"{self.user_data.count_users('Cashier')}")
 
-    def load_csv_to_table(self, table_widget, csv_file_path):
+    def load_table(self, table_widget, table_name, columns=None):
         """
-        Load data from a CSV file into a table widget.
-        
-        Args:
-            table_widget: The table widget to populate
-            csv_file_path: Path to the CSV file to load
-        """
-        # Open csv file and read the content as a list
-        with open(csv_file_path, newline='') as file:
-            reader = csv.reader(file)
-            data = list(reader)
+        Load data into a table widget from Supabase (users) or CSV (inventory/sales).
 
-        # Set number of rows (excluding header)
-        table_widget.setRowCount(len(data) - 1)
-        
-        # Fill the table by iterating over each row and each item in that row (skip header row)
-        for row_index, row_list in enumerate(data[1:]):
-            for column_index, item in enumerate(row_list):
-                table_widget.setItem(row_index, column_index, QTableWidgetItem(item))
+        Args:
+            table_widget: The table widget to populate.
+            table_name (str): Supabase table name ("users") or CSV file path for others.
+            columns (list, optional): List of column names to select in order (Supabase only).
+                                    If None, selects all columns in default order.
+        """
+        try:
+            if table_name == "users":
+                # Build select string from columns list, or fetch all if not specified
+                select_str = ", ".join(columns) if columns else "*"
+                response = self.user_data.supabase.table("users").select(select_str).execute()
+                rows = []
+                for row in (response.data or []):
+                    if isinstance(row, dict):
+                        if columns:
+                            # Extract values in the exact order specified by columns
+                            # This prevents dict ordering issues from Supabase responses
+                            rows.append([row.get(col) for col in columns])
+                        else:
+                            rows.append(list(row.values()))
+            else:
+                # Load inventory/sales data directly from CSV file
+                rows = []
+                with open(table_name, "r", newline="") as file:
+                    reader = csv.reader(file)
+                    rows = list(reader)[1:]  # Skip header row
+
+            # Clear the table if no data is returned
+            if not rows:
+                table_widget.setRowCount(0)
+                return
+
+            # Set the number of rows to match the data
+            table_widget.setRowCount(len(rows))
+
+            # Fill the table row by row, column by column
+            for row_index, row in enumerate(rows):
+                for column_index, value in enumerate(row):
+                    table_widget.setItem(row_index, column_index, QTableWidgetItem(str(value)))
+
+        except Exception as e:
+            QMessageBox.warning(self, "Load Error", f"Failed to load data: {str(e)}")
 
     def account_popup_ui(self):
         """Show account information popup and handle logout."""

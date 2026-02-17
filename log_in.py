@@ -4,8 +4,6 @@ from ui.ui_login import Ui_LogInWindow
 from models.user import UserDatabase
 from main import MainWindow
 
-USER_DATA = "data/user_data.csv"
-
 class LogInWindow(QMainWindow):
     """
     Main login window for the application.
@@ -25,9 +23,9 @@ class LogInWindow(QMainWindow):
         self.ui.setupUi(self)
 
         try:
-            self.user_data = UserDatabase(USER_DATA)
+            self.user_data = UserDatabase()
         except ValueError as e:
-            # Show error if API doesn't work
+            # Show error if database connection fails
             QMessageBox.warning(self, "Connection Error", str(e))
             sys.exit(1)
 
@@ -52,8 +50,8 @@ class LogInWindow(QMainWindow):
         try:
             # Delegate authentication logic to UserDatabase
             if self.user_data.authenticate_user(username, password):
-                # If valid: open main window and close login screen
-                self.main_window = MainWindow(username)
+                # Authentication successful - open main window and close login screen
+                self.main_window = MainWindow(username, self.user_data)
                 self.main_window.showMaximized()
                 self.close()
         except ValueError as e:
