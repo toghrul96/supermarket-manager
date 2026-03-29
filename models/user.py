@@ -8,21 +8,44 @@ from supabase import create_client
 class UserDatabase():
     """Secure user management system with role-based access control and password hashing."""
     
-    def __init__(self, filename=None):
+    def __init__(self):
         """Initialize user database with Supabase connection."""
+        import threading
         load_dotenv()
         
-        supabase_url = os.getenv("SUPABASE_URL")
-        supabase_key = os.getenv("SUPABASE_KEY")
+        self._url = os.getenv("SUPABASE_URL")
+        self._key = os.getenv("SUPABASE_KEY")
         
-        if not supabase_url or not supabase_key:
+        if not self._url or not self._key:
             raise ValueError("Missing Supabase credentials in .env file")
         
-        # Initialize Supabase client for auth and data operations
-        self.supabase = create_client(supabase_url, supabase_key)
-        
+        # Stored after successful authenticate_user() so new thread-local
+        # clients can inherit the session without re-authenticating.
+        self._access_token = None
+        self._refresh_token = None
+
+        # Thread-local storage: each thread gets its own supabase client
+        # and therefore its own httpx HTTP/2 connection pool.
+        # Sharing one client across threads corrupts the HTTP/2 pool.
+        self._local = threading.local()
+
         # Predefined roles enforce access control hierarchy
         self.roles = ["Admin", "Manager", "Cashier"]
+
+    @property
+    def supabase(self):
+        """Return a thread-local supabase client, creating one if needed."""
+        if not hasattr(self._local, 'client'):
+            client = create_client(self._url, self._key)
+            # Propagate auth session to new thread clients so they can make
+            # authenticated requests without logging in again.
+            if self._access_token and self._refresh_token:
+                try:
+                    client.auth.set_session(self._access_token, self._refresh_token)
+                except Exception:
+                    pass
+            self._local.client = client
+        return self._local.client
        
     def add_user(self, username, password, role):
         """
@@ -146,7 +169,7 @@ class UserDatabase():
         """
         try:
             # Query Supabase for users matching the keyword prefix
-            response = self.supabase.table("users").select("*").ilike(
+            response = self.supabase.table("users").select("username, role, created_at").ilike(
                 "username", f"{keyword}%"
             ).execute()
 
@@ -154,7 +177,7 @@ class UserDatabase():
             result = []
             for row in (response.data or []):
                 if isinstance(row, dict):  # Type guard for Pylance
-                    result.append(list(row.values()))
+                    result.append([row.get("username"), row.get("role"), row.get("created_at")])
             return result
 
         except Exception as e:
@@ -218,7 +241,14 @@ class UserDatabase():
             # Verify session was created (required for subsequent authenticated requests)
             if not auth_response.session:
                 raise ValueError("No session returned from authentication")
-            
+
+            # Save tokens so thread-local clients on other threads can
+            # inherit this session without re-authenticating.
+            self._access_token = auth_response.session.access_token
+            self._refresh_token = auth_response.session.refresh_token
+            # Also store on current thread-local client
+            self._local.client = self._local.client if hasattr(self._local, 'client') else create_client(self._url, self._key)
+
             return True
             
         except Exception as e:

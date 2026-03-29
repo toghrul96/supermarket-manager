@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1184</width>
-    <height>862</height>
+    <width>1176</width>
+    <height>845</height>
    </rect>
   </property>
   <property name="font">
@@ -19,7 +19,7 @@
    <string>Supermarket Manager</string>
   </property>
   <property name="windowIcon">
-   <iconset resource="../icons/resource.qrc">
+   <iconset resource="Code projects/python/supermarket_manager_app/icons/resource.qrc">
     <normaloff>:/icons/cart.png</normaloff>:/icons/cart.png</iconset>
   </property>
   <property name="styleSheet">
@@ -340,7 +340,7 @@ QPushButton#account_btn:pressed {
                <string/>
               </property>
               <property name="icon">
-               <iconset resource="../icons/resource.qrc">
+               <iconset resource="Code projects/python/supermarket_manager_app/icons/resource.qrc">
                 <normaloff>:/icons/menu_icon.png</normaloff>
                 <normalon>:/icons/menu_icon.png</normalon>:/icons/menu_icon.png</iconset>
               </property>
@@ -383,7 +383,7 @@ QPushButton#account_btn:pressed {
                <string/>
               </property>
               <property name="icon">
-               <iconset resource="../icons/resource.qrc">
+               <iconset resource="Code projects/python/supermarket_manager_app/icons/resource.qrc">
                 <normaloff>:/icons/account_black.png</normaloff>
                 <normalon>:/icons/account_black.png</normalon>:/icons/account_black.png</iconset>
               </property>
@@ -404,7 +404,7 @@ QPushButton#account_btn:pressed {
             <string notr="true"/>
            </property>
            <property name="currentIndex">
-            <number>2</number>
+            <number>1</number>
            </property>
            <widget class="QWidget" name="checkout_page">
             <property name="styleSheet">
@@ -656,7 +656,7 @@ QPushButton#account_btn:pressed {
                       <string/>
                      </property>
                      <property name="icon">
-                      <iconset resource="../icons/resource.qrc">
+                      <iconset resource="Code projects/python/supermarket_manager_app/icons/resource.qrc">
                        <normaloff>:/icons/add_icon.png</normaloff>:/icons/add_icon.png</iconset>
                      </property>
                      <property name="iconSize">
@@ -689,7 +689,7 @@ QPushButton#account_btn:pressed {
                       <string/>
                      </property>
                      <property name="icon">
-                      <iconset resource="../icons/resource.qrc">
+                      <iconset resource="Code projects/python/supermarket_manager_app/icons/resource.qrc">
                        <normaloff>:/icons/subtract_icon.png</normaloff>:/icons/subtract_icon.png</iconset>
                      </property>
                      <property name="iconSize">
@@ -797,7 +797,7 @@ QPushButton#account_btn:pressed {
                       <string/>
                      </property>
                      <property name="icon">
-                      <iconset resource="../icons/resource.qrc">
+                      <iconset resource="Code projects/python/supermarket_manager_app/icons/resource.qrc">
                        <normaloff>:/icons/close_icon.png</normaloff>:/icons/close_icon.png</iconset>
                      </property>
                      <property name="iconSize">
@@ -2119,6 +2119,19 @@ font-size: 12pt;
                       </widget>
                      </item>
                      <item>
+                      <widget class="QPushButton" name="available_btn">
+                       <property name="minimumSize">
+                        <size>
+                         <width>130</width>
+                         <height>40</height>
+                        </size>
+                       </property>
+                       <property name="text">
+                        <string>Available</string>
+                       </property>
+                      </widget>
+                     </item>
+                     <item>
                       <widget class="QPushButton" name="low_stock_btn">
                        <property name="minimumSize">
                         <size>
@@ -2324,7 +2337,7 @@ font-size: 12pt;
                            <second>0</second>
                            <year>2024</year>
                            <month>12</month>
-                           <day>16</day>
+                           <day>15</day>
                           </datetime>
                          </property>
                          <property name="displayFormat">
@@ -3781,7 +3794,7 @@ font-size: 12pt;
               <string/>
              </property>
              <property name="icon">
-              <iconset resource="../icons/resource.qrc">
+              <iconset resource="Code projects/python/supermarket_manager_app/icons/resource.qrc">
                <normaloff>:/icons/checkout_gold.png</normaloff>
                <normalon>:/icons/checkout_blue.png</normalon>:/icons/checkout_gold.png</iconset>
              </property>
@@ -3815,7 +3828,7 @@ font-size: 12pt;
               <string/>
              </property>
              <property name="icon">
-              <iconset resource="../icons/resource.qrc">
+              <iconset resource="Code projects/python/supermarket_manager_app/icons/resource.qrc">
                <normaloff>:/icons/data_gold.png</normaloff>
                <normalon>:/icons/data_blue.png</normalon>:/icons/data_gold.png</iconset>
              </property>
@@ -3849,7 +3862,7 @@ font-size: 12pt;
               <string/>
              </property>
              <property name="icon">
-              <iconset resource="../icons/resource.qrc">
+              <iconset resource="Code projects/python/supermarket_manager_app/icons/resource.qrc">
                <normaloff>:/icons/chart_gold.png</normaloff>
                <normalon>:/icons/chart_blue.png</normalon>:/icons/chart_gold.png</iconset>
              </property>
@@ -3883,7 +3896,7 @@ font-size: 12pt;
               <string/>
              </property>
              <property name="icon">
-              <iconset resource="../icons/resource.qrc">
+              <iconset resource="Code projects/python/supermarket_manager_app/icons/resource.qrc">
                <normaloff>:/icons/users_gold.png</normaloff>
                <normalon>:/icons/users_blue.png</normalon>:/icons/users_gold.png</iconset>
              </property>
@@ -3931,7 +3944,7 @@ font-size: 12pt;
           <string/>
          </property>
          <property name="icon">
-          <iconset resource="../icons/resource.qrc">
+          <iconset resource="Code projects/python/supermarket_manager_app/icons/resource.qrc">
            <normaloff>:/icons/exit_gold.png</normaloff>
            <normalon>:/icons/exit_blue.png</normalon>:/icons/exit_gold.png</iconset>
          </property>
@@ -3950,7 +3963,7 @@ font-size: 12pt;
   </widget>
  </widget>
  <resources>
-  <include location="../icons/resource.qrc"/>
+  <include location="Code projects/python/supermarket_manager_app/icons/resource.qrc"/>
  </resources>
  <connections/>
 </ui>

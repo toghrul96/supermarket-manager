@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 ################################################################################
-## Form generated from reading UI file 'mainaQSTGP.ui'
+## Form generated from reading UI file 'mainfzClTT.ui'
 ##
 ## Created by: Qt User Interface Compiler version 6.9.1
 ##
@@ -26,7 +26,7 @@ class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         if not MainWindow.objectName():
             MainWindow.setObjectName(u"MainWindow")
-        MainWindow.resize(1184, 862)
+        MainWindow.resize(1176, 845)
         font = QFont()
         font.setFamilies([u"Segoe UI"])
         MainWindow.setFont(font)
@@ -117,6 +117,26 @@ class Ui_MainWindow(object):
 "QPushButton#delete_record_btn:pressed{\n"
 "    background-color: #6f241c;\n"
 "    border-color: #6f241c;\n"
+"}\n"
+"\n"
+"QPushButton#return_item_btn {\n"
+"    background-color: #34495e;\n"
+"    color: white;\n"
+"    border: 2px solid #34495e;\n"
+"    border-radius: 5px;\n"
+"    font-family: \"Segoe UI\";\n"
+"    font-weight: 600;\n"
+"    font-size: 12pt;\n"
+"}\n"
+"\n"
+"QPushButton#return_item_btn:hover {\n"
+"    background-color: #2c3e50;\n"
+"    border-color: #2c3e50;\n"
+"}\n"
+"\n"
+"QPushButton#return_item_btn:pressed {\n"
+"    background-color: #22313f;\n"
+"    border-color: #22313f;\n"
 "}\n"
 "\n"
 "\n"
@@ -265,11 +285,94 @@ class Ui_MainWindow(object):
 "		background-color: #F5F7F9;\n"
 "    	color: #34495e;\n"
 "    	border-top-left-radius: 5px;\n"
-""
-                        "   		border-bottom-left-radius: 5px;\n"
+"   		border-bottom-left-radius: 5px;\n"
 "   		border-top-right-radius: 0px;\n"
 "    	border-bottom-right-radius: 0px\n"
 "	}\n"
+"\n"
+"QTableWidget {\n"
+"    border: 1px solid #34495e;\n"
+"    background-color: white;\n"
+"    gridline-color: #dce1e7;\n"
+"    alternate-background-color: #eef1f4;\n"
+"    font-family: \"Segoe UI\";\n"
+"    font-size: 11pt;\n"
+"}\n"
+"\n"
+"QTableWidget::item {\n"
+"    padding: 4px 6px;\n"
+"}\n"
+"\n"
+"QTableWidget::item:selected {\n"
+"    background-color: #34495e;\n"
+"    color: white;\n"
+"}\n"
+"\n"
+"QTableWidget QHeaderView::section:horizontal {\n"
+"    background-color: #34495e;\n"
+"    color: white;\n"
+"    font-family: \"Segoe UI\";\n"
+"    font-weight: 600;\n"
+"    font-size: 11pt;\n"
+"    padding: 6px;\n"
+"    border: none;\n"
+"    border-right: 1px solid #2c3e50;\n"
+"    border-bottom: 1px solid #2c3e50;\n"
+"}\n"
+"\n"
+"QTableWidget QHeaderView::section:vertical {\n"
+"    background-color: #34495e;\n"
+"    color: white;\n"
+"    font-family: \"Segoe UI\";\n"
+"    font-weight: 600;\n"
+"    padding: 4px 6px;\n"
+"    border: none;\n"
+"    border-bottom: 1px solid #2c3e50;\n"
+"}\n"
+"\n"
+"QScrollBar:vertical {\n"
+"    background-color: #F5F7F9;\n"
+"    width: 10px;\n"
+"    border-radius: 5px;\n"
+"    margin: 0px;\n"
+"}\n"
+"\n"
+"QScrollBar::handle:vertical {\n"
+"    background-color: #34495e;\n"
+"    border-radius: 5px;\n"
+"    min-height: 30px;\n"
+"}\n"
+"\n"
+"QScrollBar::handle:vertical:hover {\n"
+"    background-color: #2c3e50;\n"
+"}\n"
+"\n"
+"QScrollBar::add-line:vertical,\n"
+"QScrollBar::sub-line:vertical {\n"
+"    height: 0px;\n"
+"}\n"
+"\n"
+"QScrollBar:horizontal {\n"
+"    background-color: #F5F7F9;\n"
+"    height: 10px;\n"
+"    border-radius: 5px;\n"
+"    margin: 0px;\n"
+"}\n"
+"\n"
+"QScrollBar::handle:horizontal {\n"
+"    background-color: #34495e;\n"
+"    border-radius: 5px;\n"
+"    min-width: 30px;\n"
+"}\n"
+"\n"
+"QScrollBar::handle:horizontal:hover {\n"
+"    background-color: #2c3e50;\n"
+"}\n"
+"\n"
+"QScrollBar::add-line:horizontal,\n"
+"QScrollBar::sub-line:horizontal {\n"
+"    width: 0px;\n"
+"}\n"
 "\n"
 "")
         self.centralwidget = QWidget(MainWindow)
@@ -378,6 +481,13 @@ class Ui_MainWindow(object):
 
         self.horizontalLayout_13 = QHBoxLayout()
         self.horizontalLayout_13.setObjectName(u"horizontalLayout_13")
+        self.return_item_btn = QPushButton(self.checkout_page)
+        self.return_item_btn.setObjectName(u"return_item_btn")
+        self.return_item_btn.setMinimumSize(QSize(140, 44))
+        self.return_item_btn.setFont(font2)
+
+        self.horizontalLayout_13.addWidget(self.return_item_btn)
+
         self.cancel_sale_btn = QPushButton(self.checkout_page)
         self.cancel_sale_btn.setObjectName(u"cancel_sale_btn")
         self.cancel_sale_btn.setMinimumSize(QSize(140, 44))
@@ -939,6 +1049,12 @@ class Ui_MainWindow(object):
         self.buttons_layout = QHBoxLayout()
         self.buttons_layout.setSpacing(10)
         self.buttons_layout.setObjectName(u"buttons_layout")
+        self.products_btn = QPushButton(self.inventory_page)
+        self.products_btn.setObjectName(u"products_btn")
+        self.products_btn.setMinimumSize(QSize(120, 44))
+
+        self.buttons_layout.addWidget(self.products_btn)
+
         self.add_item_btn = QPushButton(self.inventory_page)
         self.add_item_btn.setObjectName(u"add_item_btn")
         self.add_item_btn.setMinimumSize(QSize(120, 44))
@@ -973,54 +1089,42 @@ class Ui_MainWindow(object):
         self.middle_layout.addLayout(self.buttons_layout)
 
         self.inventory_table = QTableWidget(self.inventory_page)
-        if (self.inventory_table.columnCount() < 14):
-            self.inventory_table.setColumnCount(14)
+        if (self.inventory_table.columnCount() < 10):
+            self.inventory_table.setColumnCount(10)
         font14 = QFont()
         font14.setPointSize(11)
         font14.setWeight(QFont.DemiBold)
-        __qtablewidgetitem7 = QTableWidgetItem()
-        __qtablewidgetitem7.setFont(font14);
-        self.inventory_table.setHorizontalHeaderItem(0, __qtablewidgetitem7)
         __qtablewidgetitem8 = QTableWidgetItem()
         __qtablewidgetitem8.setFont(font5);
         __qtablewidgetitem8.setBackground(QColor(255, 255, 255));
-        self.inventory_table.setHorizontalHeaderItem(1, __qtablewidgetitem8)
-        __qtablewidgetitem9 = QTableWidgetItem()
-        __qtablewidgetitem9.setFont(font5);
-        self.inventory_table.setHorizontalHeaderItem(2, __qtablewidgetitem9)
-        __qtablewidgetitem10 = QTableWidgetItem()
-        __qtablewidgetitem10.setFont(font5);
-        self.inventory_table.setHorizontalHeaderItem(3, __qtablewidgetitem10)
+        self.inventory_table.setHorizontalHeaderItem(0, __qtablewidgetitem8)
         __qtablewidgetitem11 = QTableWidgetItem()
         __qtablewidgetitem11.setFont(font5);
-        self.inventory_table.setHorizontalHeaderItem(4, __qtablewidgetitem11)
+        self.inventory_table.setHorizontalHeaderItem(1, __qtablewidgetitem11)
         __qtablewidgetitem12 = QTableWidgetItem()
         __qtablewidgetitem12.setFont(font14);
-        self.inventory_table.setHorizontalHeaderItem(5, __qtablewidgetitem12)
-        __qtablewidgetitem13 = QTableWidgetItem()
-        __qtablewidgetitem13.setFont(font14);
-        self.inventory_table.setHorizontalHeaderItem(6, __qtablewidgetitem13)
+        self.inventory_table.setHorizontalHeaderItem(2, __qtablewidgetitem12)
         __qtablewidgetitem14 = QTableWidgetItem()
         __qtablewidgetitem14.setFont(font14);
-        self.inventory_table.setHorizontalHeaderItem(7, __qtablewidgetitem14)
+        self.inventory_table.setHorizontalHeaderItem(3, __qtablewidgetitem14)
         __qtablewidgetitem15 = QTableWidgetItem()
         __qtablewidgetitem15.setFont(font14);
-        self.inventory_table.setHorizontalHeaderItem(8, __qtablewidgetitem15)
+        self.inventory_table.setHorizontalHeaderItem(4, __qtablewidgetitem15)
         __qtablewidgetitem16 = QTableWidgetItem()
         __qtablewidgetitem16.setFont(font14);
-        self.inventory_table.setHorizontalHeaderItem(9, __qtablewidgetitem16)
+        self.inventory_table.setHorizontalHeaderItem(5, __qtablewidgetitem16)
         __qtablewidgetitem17 = QTableWidgetItem()
         __qtablewidgetitem17.setFont(font14);
-        self.inventory_table.setHorizontalHeaderItem(10, __qtablewidgetitem17)
+        self.inventory_table.setHorizontalHeaderItem(6, __qtablewidgetitem17)
         __qtablewidgetitem18 = QTableWidgetItem()
         __qtablewidgetitem18.setFont(font14);
-        self.inventory_table.setHorizontalHeaderItem(11, __qtablewidgetitem18)
+        self.inventory_table.setHorizontalHeaderItem(7, __qtablewidgetitem18)
         __qtablewidgetitem19 = QTableWidgetItem()
         __qtablewidgetitem19.setFont(font14);
-        self.inventory_table.setHorizontalHeaderItem(12, __qtablewidgetitem19)
+        self.inventory_table.setHorizontalHeaderItem(8, __qtablewidgetitem19)
         __qtablewidgetitem20 = QTableWidgetItem()
         __qtablewidgetitem20.setFont(font14);
-        self.inventory_table.setHorizontalHeaderItem(13, __qtablewidgetitem20)
+        self.inventory_table.setHorizontalHeaderItem(9, __qtablewidgetitem20)
         self.inventory_table.setObjectName(u"inventory_table")
         self.inventory_table.setMinimumSize(QSize(1000, 400))
         font15 = QFont()
@@ -1049,6 +1153,12 @@ class Ui_MainWindow(object):
         self.clear_inventory_tb_btn.setMinimumSize(QSize(130, 40))
 
         self.horizontalLayout_10.addWidget(self.clear_inventory_tb_btn)
+
+        self.available_btn = QPushButton(self.inventory_page)
+        self.available_btn.setObjectName(u"available_btn")
+        self.available_btn.setMinimumSize(QSize(130, 40))
+
+        self.horizontalLayout_10.addWidget(self.available_btn)
 
         self.low_stock_btn = QPushButton(self.inventory_page)
         self.low_stock_btn.setObjectName(u"low_stock_btn")
@@ -1444,6 +1554,81 @@ class Ui_MainWindow(object):
 
         self.reports_tab.addTab(self.top_employees_tab, "")
 
+        self.returned_items_tab = QWidget()
+        self.returned_items_tab.setObjectName(u"returned_items_tab")
+        self.gridLayout_25 = QGridLayout(self.returned_items_tab)
+        self.gridLayout_25.setObjectName(u"gridLayout_25")
+        self.verticalLayout_25 = QVBoxLayout()
+        self.verticalLayout_25.setObjectName(u"verticalLayout_25")
+
+        self.horizontalLayout_25 = QHBoxLayout()
+        self.horizontalLayout_25.setSpacing(8)
+        self.horizontalLayout_25.setObjectName(u"horizontalLayout_25")
+        self.horizontalLayout_25.setContentsMargins(6, 14, 4, -1)
+
+        self.returned_search_lineEdit = QLineEdit(self.returned_items_tab)
+        self.returned_search_lineEdit.setObjectName(u"returned_search_lineEdit")
+        self.returned_search_lineEdit.setMinimumSize(QSize(310, 40))
+        self.returned_search_lineEdit.setFont(font1)
+
+        self.horizontalLayout_25.addWidget(self.returned_search_lineEdit)
+
+        self.clear_returned_tbl_btn = QPushButton(self.returned_items_tab)
+        self.clear_returned_tbl_btn.setObjectName(u"clear_returned_tbl_btn")
+        self.clear_returned_tbl_btn.setMinimumSize(QSize(130, 40))
+
+        self.horizontalLayout_25.addWidget(self.clear_returned_tbl_btn)
+
+        self.horizontalSpacer_9 = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.horizontalLayout_25.addItem(self.horizontalSpacer_9)
+
+        self.verticalLayout_25.addLayout(self.horizontalLayout_25)
+
+        self.returned_items_table = QTableWidget(self.returned_items_tab)
+        if (self.returned_items_table.columnCount() < 11):
+            self.returned_items_table.setColumnCount(11)
+        __qtablewidgetitem53 = QTableWidgetItem()
+        __qtablewidgetitem53.setFont(font14);
+        self.returned_items_table.setHorizontalHeaderItem(0, __qtablewidgetitem53)
+        __qtablewidgetitem54 = QTableWidgetItem()
+        __qtablewidgetitem54.setFont(font14);
+        self.returned_items_table.setHorizontalHeaderItem(1, __qtablewidgetitem54)
+        __qtablewidgetitem55 = QTableWidgetItem()
+        __qtablewidgetitem55.setFont(font14);
+        self.returned_items_table.setHorizontalHeaderItem(2, __qtablewidgetitem55)
+        __qtablewidgetitem56 = QTableWidgetItem()
+        __qtablewidgetitem56.setFont(font14);
+        self.returned_items_table.setHorizontalHeaderItem(3, __qtablewidgetitem56)
+        __qtablewidgetitem57 = QTableWidgetItem()
+        __qtablewidgetitem57.setFont(font14);
+        self.returned_items_table.setHorizontalHeaderItem(4, __qtablewidgetitem57)
+        __qtablewidgetitem58 = QTableWidgetItem()
+        __qtablewidgetitem58.setFont(font14);
+        self.returned_items_table.setHorizontalHeaderItem(5, __qtablewidgetitem58)
+        __qtablewidgetitem59 = QTableWidgetItem()
+        __qtablewidgetitem59.setFont(font14);
+        self.returned_items_table.setHorizontalHeaderItem(6, __qtablewidgetitem59)
+        __qtablewidgetitem60 = QTableWidgetItem()
+        __qtablewidgetitem60.setFont(font14);
+        self.returned_items_table.setHorizontalHeaderItem(7, __qtablewidgetitem60)
+        __qtablewidgetitem61 = QTableWidgetItem()
+        __qtablewidgetitem61.setFont(font14);
+        self.returned_items_table.setHorizontalHeaderItem(8, __qtablewidgetitem61)
+        __qtablewidgetitem62 = QTableWidgetItem()
+        __qtablewidgetitem62.setFont(font14);
+        self.returned_items_table.setHorizontalHeaderItem(9, __qtablewidgetitem62)
+        __qtablewidgetitem63 = QTableWidgetItem()
+        __qtablewidgetitem63.setFont(font14);
+        self.returned_items_table.setHorizontalHeaderItem(10, __qtablewidgetitem63)
+        self.returned_items_table.setObjectName(u"returned_items_table")
+        self.returned_items_table.setFont(font15)
+
+        self.verticalLayout_25.addWidget(self.returned_items_table)
+
+        self.gridLayout_25.addLayout(self.verticalLayout_25, 0, 0, 1, 1)
+
+        self.reports_tab.addTab(self.returned_items_tab, "")
+
         self.gridLayout_5.addWidget(self.reports_tab, 0, 0, 1, 1)
 
         self.stackedWidget.addWidget(self.reports_page)
@@ -1818,7 +2003,7 @@ class Ui_MainWindow(object):
 
         self.retranslateUi(MainWindow)
 
-        self.stackedWidget.setCurrentIndex(2)
+        self.stackedWidget.setCurrentIndex(1)
         self.reports_tab.setCurrentIndex(2)
 
 
@@ -1826,13 +2011,14 @@ class Ui_MainWindow(object):
     # setupUi
 
     def retranslateUi(self, MainWindow):
-        MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"Supermarket Manager", None))
+        MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"Supermarket Management System", None))
         self.menu_btn.setText("")
         self.account_btn.setText("")
         self.barcode_lineEdit.setInputMask("")
         self.barcode_lineEdit.setText("")
         self.barcode_lineEdit.setPlaceholderText(QCoreApplication.translate("MainWindow", u"Scan or enter barcode...", None))
         self.checkout_add_item.setText(QCoreApplication.translate("MainWindow", u"[F1] Add Item", None))
+        self.return_item_btn.setText(QCoreApplication.translate("MainWindow", u"Return Item", None))
         self.cancel_sale_btn.setText(QCoreApplication.translate("MainWindow", u"[ESC] Cancel Sale", None))
         ___qtablewidgetitem = self.checkout_table.horizontalHeaderItem(0)
         ___qtablewidgetitem.setText(QCoreApplication.translate("MainWindow", u"Barcode", None));
@@ -1889,39 +2075,33 @@ class Ui_MainWindow(object):
         self.add_item_btn.setText(QCoreApplication.translate("MainWindow", u"Add Item", None))
         self.update_item_btn.setText(QCoreApplication.translate("MainWindow", u"Update Item", None))
         self.discount_item_btn.setText(QCoreApplication.translate("MainWindow", u"Discount Item", None))
+        self.products_btn.setText(QCoreApplication.translate("MainWindow", u"Products", None))
         self.delete_item_btn.setText(QCoreApplication.translate("MainWindow", u"Remove Item", None))
         ___qtablewidgetitem7 = self.inventory_table.horizontalHeaderItem(0)
-        ___qtablewidgetitem7.setText(QCoreApplication.translate("MainWindow", u"Category", None));
+        ___qtablewidgetitem7.setText(QCoreApplication.translate("MainWindow", u"Item Name", None));
         ___qtablewidgetitem8 = self.inventory_table.horizontalHeaderItem(1)
-        ___qtablewidgetitem8.setText(QCoreApplication.translate("MainWindow", u"Item Name", None));
+        ___qtablewidgetitem8.setText(QCoreApplication.translate("MainWindow", u"Batch Number", None));
         ___qtablewidgetitem9 = self.inventory_table.horizontalHeaderItem(2)
-        ___qtablewidgetitem9.setText(QCoreApplication.translate("MainWindow", u"SKU", None));
+        ___qtablewidgetitem9.setText(QCoreApplication.translate("MainWindow", u"Quantity", None));
         ___qtablewidgetitem10 = self.inventory_table.horizontalHeaderItem(3)
-        ___qtablewidgetitem10.setText(QCoreApplication.translate("MainWindow", u"Barcode", None));
+        ___qtablewidgetitem10.setText(QCoreApplication.translate("MainWindow", u"Cost per Unit", None));
         ___qtablewidgetitem11 = self.inventory_table.horizontalHeaderItem(4)
-        ___qtablewidgetitem11.setText(QCoreApplication.translate("MainWindow", u"Batch Number", None));
+        ___qtablewidgetitem11.setText(QCoreApplication.translate("MainWindow", u"Price per Unit", None));
         ___qtablewidgetitem12 = self.inventory_table.horizontalHeaderItem(5)
-        ___qtablewidgetitem12.setText(QCoreApplication.translate("MainWindow", u"Quantity", None));
+        ___qtablewidgetitem12.setText(QCoreApplication.translate("MainWindow", u"Discount", None));
         ___qtablewidgetitem13 = self.inventory_table.horizontalHeaderItem(6)
-        ___qtablewidgetitem13.setText(QCoreApplication.translate("MainWindow", u"Minimum Stock", None));
+        ___qtablewidgetitem13.setText(QCoreApplication.translate("MainWindow", u"Net Price", None));
         ___qtablewidgetitem14 = self.inventory_table.horizontalHeaderItem(7)
-        ___qtablewidgetitem14.setText(QCoreApplication.translate("MainWindow", u"Cost per Unit", None));
+        ___qtablewidgetitem14.setText(QCoreApplication.translate("MainWindow", u"Received Date", None));
         ___qtablewidgetitem15 = self.inventory_table.horizontalHeaderItem(8)
-        ___qtablewidgetitem15.setText(QCoreApplication.translate("MainWindow", u"Price per Unit", None));
+        ___qtablewidgetitem15.setText(QCoreApplication.translate("MainWindow", u"Expiry Date", None));
         ___qtablewidgetitem16 = self.inventory_table.horizontalHeaderItem(9)
-        ___qtablewidgetitem16.setText(QCoreApplication.translate("MainWindow", u"Discount", None));
-        ___qtablewidgetitem17 = self.inventory_table.horizontalHeaderItem(10)
-        ___qtablewidgetitem17.setText(QCoreApplication.translate("MainWindow", u"Net Price", None));
-        ___qtablewidgetitem18 = self.inventory_table.horizontalHeaderItem(11)
-        ___qtablewidgetitem18.setText(QCoreApplication.translate("MainWindow", u"Received Date", None));
-        ___qtablewidgetitem19 = self.inventory_table.horizontalHeaderItem(12)
-        ___qtablewidgetitem19.setText(QCoreApplication.translate("MainWindow", u"Expiry Date", None));
-        ___qtablewidgetitem20 = self.inventory_table.horizontalHeaderItem(13)
-        ___qtablewidgetitem20.setText(QCoreApplication.translate("MainWindow", u"Status", None));
+        ___qtablewidgetitem16.setText(QCoreApplication.translate("MainWindow", u"Status", None));
         self.item_search_lineEdit.setInputMask("")
         self.item_search_lineEdit.setText("")
-        self.item_search_lineEdit.setPlaceholderText(QCoreApplication.translate("MainWindow", u"Enter an Item Name, SKU, Barcode, or Batch Number to Search...", None))
+        self.item_search_lineEdit.setPlaceholderText(QCoreApplication.translate("MainWindow", u"Enter an Item Name or Batch Number to Search...", None))
         self.clear_inventory_tb_btn.setText(QCoreApplication.translate("MainWindow", u"Clear", None))
+        self.available_btn.setText(QCoreApplication.translate("MainWindow", u"Available", None))
         self.low_stock_btn.setText(QCoreApplication.translate("MainWindow", u"Low Stock", None))
         self.out_of_stock_btn.setText(QCoreApplication.translate("MainWindow", u"Out of Stock", None))
         self.expired_btn.setText(QCoreApplication.translate("MainWindow", u"Expired", None))
@@ -2015,6 +2195,33 @@ class Ui_MainWindow(object):
         self.filter_employees_comboBox.setItemText(4, QCoreApplication.translate("MainWindow", u"Yearly", None))
 
         self.reports_tab.setTabText(self.reports_tab.indexOf(self.top_employees_tab), QCoreApplication.translate("MainWindow", u"Top Employees", None))
+        self.returned_search_lineEdit.setInputMask("")
+        self.returned_search_lineEdit.setText("")
+        self.returned_search_lineEdit.setPlaceholderText(QCoreApplication.translate("MainWindow", u"Enter an Item Name, Username, SKU, Barcode, or Order ID to Search...", None))
+        self.clear_returned_tbl_btn.setText(QCoreApplication.translate("MainWindow", u"Clear", None))
+        ___qtablewidgetitem53 = self.returned_items_table.horizontalHeaderItem(0)
+        ___qtablewidgetitem53.setText(QCoreApplication.translate("MainWindow", u"Processed By", None));
+        ___qtablewidgetitem54 = self.returned_items_table.horizontalHeaderItem(1)
+        ___qtablewidgetitem54.setText(QCoreApplication.translate("MainWindow", u"SKU", None));
+        ___qtablewidgetitem55 = self.returned_items_table.horizontalHeaderItem(2)
+        ___qtablewidgetitem55.setText(QCoreApplication.translate("MainWindow", u"Barcode", None));
+        ___qtablewidgetitem56 = self.returned_items_table.horizontalHeaderItem(3)
+        ___qtablewidgetitem56.setText(QCoreApplication.translate("MainWindow", u"Order ID", None));
+        ___qtablewidgetitem57 = self.returned_items_table.horizontalHeaderItem(4)
+        ___qtablewidgetitem57.setText(QCoreApplication.translate("MainWindow", u"Item Name", None));
+        ___qtablewidgetitem58 = self.returned_items_table.horizontalHeaderItem(5)
+        ___qtablewidgetitem58.setText(QCoreApplication.translate("MainWindow", u"Quantity", None));
+        ___qtablewidgetitem59 = self.returned_items_table.horizontalHeaderItem(6)
+        ___qtablewidgetitem59.setText(QCoreApplication.translate("MainWindow", u"Unit Price", None));
+        ___qtablewidgetitem60 = self.returned_items_table.horizontalHeaderItem(7)
+        ___qtablewidgetitem60.setText(QCoreApplication.translate("MainWindow", u"Discount", None));
+        ___qtablewidgetitem61 = self.returned_items_table.horizontalHeaderItem(8)
+        ___qtablewidgetitem61.setText(QCoreApplication.translate("MainWindow", u"Net Price", None));
+        ___qtablewidgetitem62 = self.returned_items_table.horizontalHeaderItem(9)
+        ___qtablewidgetitem62.setText(QCoreApplication.translate("MainWindow", u"Line Total", None));
+        ___qtablewidgetitem63 = self.returned_items_table.horizontalHeaderItem(10)
+        ___qtablewidgetitem63.setText(QCoreApplication.translate("MainWindow", u"Return Date", None));
+        self.reports_tab.setTabText(self.reports_tab.indexOf(self.returned_items_tab), QCoreApplication.translate("MainWindow", u"Returned Items", None))
         self.total_users_header_lbl.setText(QCoreApplication.translate("MainWindow", u"Total Users:", None))
         self.total_users_lbl.setText(QCoreApplication.translate("MainWindow", u"0", None))
         self.admins_header_lbl.setText(QCoreApplication.translate("MainWindow", u"Admins:", None))
@@ -2028,19 +2235,20 @@ class Ui_MainWindow(object):
         self.delete_user_btn.setText(QCoreApplication.translate("MainWindow", u"Delete", None))
         ___qtablewidgetitem49 = self.user_table.horizontalHeaderItem(0)
         ___qtablewidgetitem49.setText(QCoreApplication.translate("MainWindow", u"Username", None));
-        ___qtablewidgetitem50 = self.user_table.horizontalHeaderItem(1)
-        ___qtablewidgetitem50.setText(QCoreApplication.translate("MainWindow", u"Role", None));
-        ___qtablewidgetitem51 = self.user_table.horizontalHeaderItem(2)
-        ___qtablewidgetitem51.setText(QCoreApplication.translate("MainWindow", u"Created at", None));
+        ___qtablewidgetitem51 = self.user_table.horizontalHeaderItem(1)
+        ___qtablewidgetitem51.setText(QCoreApplication.translate("MainWindow", u"Role", None));
+        ___qtablewidgetitem52 = self.user_table.horizontalHeaderItem(2)
+        ___qtablewidgetitem52.setText(QCoreApplication.translate("MainWindow", u"Created at", None));
         self.username_search_lineEdit.setInputMask("")
         self.username_search_lineEdit.setText("")
         self.username_search_lineEdit.setPlaceholderText(QCoreApplication.translate("MainWindow", u"Enter a Username to Search...", None))
         self.clear_user_tb_btn.setText(QCoreApplication.translate("MainWindow", u"Clear", None))
-        self.logo.setText(QCoreApplication.translate("MainWindow", u"S.M.", None))
+        self.logo.setText(QCoreApplication.translate("MainWindow", u"S.M.S", None))
+        self.logo.setMinimumWidth(80)
+        self.logo.setStyleSheet(""" font-size: 22px; """)
         self.checkout_btn.setText("")
         self.inventory_btn.setText("")
         self.reports_btn.setText("")
         self.users_btn.setText("")
         self.exit_btn.setText("")
     # retranslateUi
-

@@ -219,10 +219,9 @@ class Ui_LogInWindow(object):
     # setupUi
 
     def retranslateUi(self, LogInWindow):
-        LogInWindow.setWindowTitle(QCoreApplication.translate("LogInWindow", u"Supermarket Manager", None))
-        self.header_label.setText(QCoreApplication.translate("LogInWindow", u"Supermarket Manager", None))
+        LogInWindow.setWindowTitle(QCoreApplication.translate("LogInWindow", u"Supermarket Management System", None))
+        self.header_label.setText(QCoreApplication.translate("LogInWindow", u"Supermarket Management\nSystem", None))
         self.username_label.setText(QCoreApplication.translate("LogInWindow", u"Username:", None))
         self.password_label.setText(QCoreApplication.translate("LogInWindow", u"Password:", None))
         self.log_in_pushButton.setText(QCoreApplication.translate("LogInWindow", u"Log in", None))
     # retranslateUi
-

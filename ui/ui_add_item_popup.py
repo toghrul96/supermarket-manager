@@ -385,4 +385,3 @@ class Ui_AddItemPopup(object):
         self.expiry_dateEdit.setDisplayFormat(QCoreApplication.translate("AddItemPopup", u"dd/MM/yyyy", None))
         self.add_item_btn.setText(QCoreApplication.translate("AddItemPopup", u"Add Item", None))
     # retranslateUi
-

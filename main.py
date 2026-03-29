@@ -1,19 +1,21 @@
-from PySide6.QtWidgets import (QApplication, QMainWindow, QMessageBox, 
-                               QTableWidgetItem, QAbstractItemView, QHeaderView)
+from PySide6.QtWidgets import (QApplication, QMainWindow, QMessageBox,
+                               QTableWidgetItem, QAbstractItemView, QHeaderView,
+                               QSizePolicy)
 from PySide6.QtCore import QPropertyAnimation, QParallelAnimationGroup, QEasingCurve, Qt, QDate
 from PySide6.QtGui import QFont
 from ui.ui_main import Ui_MainWindow
 from models.user import UserDatabase
 from models.sales import SalesData
 from models.inventory import InventoryData
-from popups import (AddNewUser, UpdateUser, AddNewItem, UpdateItem, DiscountItem, 
-                    CheckoutDiscountItem, SetQuantity, AccountInfo)
-import csv
+from popups import (AddNewUser, UpdateUser, AddNewItem, UpdateItem, DiscountItem,
+                    CheckoutDiscountItem, SetQuantity, AccountInfo, ProductsPopup,
+                    ReturnItemPopup)
+from worker import run_worker
 from decimal import Decimal, InvalidOperation
 
 USER_DATA = "users"
-INVENTORY_DATA = "data/inventory_data.csv"
-SALES_DATA = "data/sales_data.csv"
+INVENTORY_DATA = "inventory"
+SALES_DATA = "sales"
 
 
 class MainWindow(QMainWindow):
@@ -24,12 +26,15 @@ class MainWindow(QMainWindow):
     to their logic, and loading user, inventory, and sales data. It manages navigation,
     popups, checkout processing, filtering, and reports.
     """
-    def __init__(self, username, user_data):
+    def __init__(self, username, user_data, role):
         """
         Initialize the main window with UI setup, data connections, and signal bindings.
 
         Args:
             username (str): Username of the logged-in user.
+            user_data: Authenticated UserDatabase instance.
+            role (str): Role of the logged-in user (fetched during login, passed in to
+                        avoid a synchronous DB call on the main thread).
         """
         super().__init__()
         self.ui = Ui_MainWindow()
@@ -38,19 +43,38 @@ class MainWindow(QMainWindow):
         # Use the passed user_data instance (already logged in)
         self.user_data = user_data
         self.username = username
-        self.role = self.user_data.get_role(self.username)
+        self.role = role
         self.set_user_access(self.role)
 
+        # Grab the logged-in user's UUID from the active Supabase session
+        # (used later when recording sales so each transaction knows who made it)
+        session = self.user_data.supabase.auth.get_session()
+        self._user_uuid = session.user.id if session and session.user else None
+
         # Initialize data handlers
-        self.inventory_data = InventoryData(INVENTORY_DATA)
-        self.sales_data = SalesData(SALES_DATA)
+        self.inventory_data = InventoryData(
+            access_token=self.user_data._access_token,
+            refresh_token=self.user_data._refresh_token,
+        )
+        self.sales_data = SalesData(
+            access_token=self.user_data._access_token,
+            refresh_token=self.user_data._refresh_token,
+        )
 
         # Initialize popup windows for user, item, and account operations
         self.add_user_popup = AddNewUser(user_data=self.user_data)
         self.update_user_popup = UpdateUser(user_data=self.user_data)
-        self.add_item_popup = AddNewItem(INVENTORY_DATA)
-        self.update_item_popup = UpdateItem(INVENTORY_DATA)
+        self.add_item_popup = AddNewItem(inventory_data=self.inventory_data)
+        self.update_item_popup = UpdateItem(inventory_data=self.inventory_data)
         self.account_popup = AccountInfo(self.username, self.role)
+        self.products_popup = ProductsPopup(inventory_data=self.inventory_data)
+
+        # Return Item popup — created once, reused on each open
+        self.return_item_popup = ReturnItemPopup(
+            sales_data=self.sales_data,
+            user_uuid=self._user_uuid,
+            on_return_complete=self._on_return_complete,
+        )
 
         # Checkout-related variables
         self.checkout_list = []         # List of items added to checkout
@@ -58,6 +82,9 @@ class MainWindow(QMainWindow):
 
         # Sidebar toggle state (collapsed by default)
         self.sidebar_expanded = False
+
+        # Thread tracking — keeps references alive until threads finish
+        self._threads = {}
 
         # Default to checkout page and focus on barcode input
         self.ui.stackedWidget.setCurrentIndex(0)
@@ -75,11 +102,11 @@ class MainWindow(QMainWindow):
 
         # User management buttons
         self.ui.add_user_btn.clicked.connect(
-            lambda: self.add_popup_ui(self.add_user_popup, self.ui.user_table, USER_DATA, ["username", "role", "created_at"]))
+            lambda: self.add_popup_ui(self.add_user_popup, self.ui.user_table, USER_DATA))
         self.ui.delete_user_btn.clicked.connect(
-            lambda: self.delete_ui(self.user_data, self.ui.user_table, USER_DATA, ["username", "role", "created_at"]))
+            lambda: self.delete_ui(self.user_data, self.ui.user_table, USER_DATA))
         self.ui.update_user_btn.clicked.connect(
-            lambda: self.update_ui(self.update_user_popup, self.ui.user_table, USER_DATA, ["username", "role", "created_at"]))
+            lambda: self.update_ui(self.update_user_popup, self.ui.user_table, USER_DATA))
         self.ui.username_search_lineEdit.textChanged.connect(
             lambda: self.search_ui(self.user_data, self.ui.user_table, USER_DATA, self.ui.username_search_lineEdit))
         self.ui.clear_user_tb_btn.clicked.connect(
@@ -98,15 +125,19 @@ class MainWindow(QMainWindow):
             lambda: self.clear_search_ui(self.ui.inventory_table, INVENTORY_DATA, self.ui.item_search_lineEdit))
 
         # Inventory filtering by stock status
+        self.ui.available_btn.clicked.connect(lambda: self.list_by_status("Available"))
         self.ui.low_stock_btn.clicked.connect(lambda: self.list_by_status("Low Stock"))
         self.ui.out_of_stock_btn.clicked.connect(lambda: self.list_by_status("Out of Stock"))
         self.ui.expired_btn.clicked.connect(lambda: self.list_by_status("Expired"))
+        self.ui.products_btn.clicked.connect(self.open_products_popup)
 
         # Checkout buttons and shortcuts
         self.ui.checkout_add_item.clicked.connect(self.checkout_add_item)
         self.ui.checkout_add_item.setShortcut("F1")
         self.ui.cancel_sale_btn.clicked.connect(self.checkout_cancel_sale)
         self.ui.cancel_sale_btn.setShortcut("Esc")
+
+        self.ui.return_item_btn.clicked.connect(self.open_return_item_popup)
         self.ui.increase_item_btn.clicked.connect(lambda: self.checkout_update_item_quantity("+"))
         self.ui.decrease_item_btn.clicked.connect(lambda: self.checkout_update_item_quantity("-"))
         self.ui.remove_item_btn.clicked.connect(self.checkout_delete_item)
@@ -138,9 +169,9 @@ class MainWindow(QMainWindow):
 
         # Table setup and data loading
         self.set_table(self.ui.user_table)
-        self.load_table(self.ui.user_table, "users", ["username", "role", "created_at"])
+        self.load_table(self.ui.user_table, "users")
         self.set_table(self.ui.inventory_table)
-        self.load_table(self.ui.inventory_table, INVENTORY_DATA)
+        self.load_table(self.ui.inventory_table, "inventory")
         self.set_table(self.ui.sales_history_table)
         self.load_table(self.ui.sales_history_table, SALES_DATA)
         self.set_table(self.ui.sales_summary_table)
@@ -149,6 +180,16 @@ class MainWindow(QMainWindow):
         self.filter_top_products_table()
         self.set_table(self.ui.top_employees_table)
         self.filter_top_employees_table()
+
+        # Set up the Returned Items tab (already in ui_main.py) and load its data
+        self.set_table(self.ui.returned_items_table)
+        self.load_returned_items_table()
+
+        # Wire up the returned items search and clear button
+        self.ui.returned_search_lineEdit.textChanged.connect(
+            lambda: self.load_returned_items_table(keyword=self.ui.returned_search_lineEdit.text() or None))
+        self.ui.clear_returned_tbl_btn.clicked.connect(
+            lambda: [self.ui.returned_search_lineEdit.clear(), self.load_returned_items_table()])
 
         # Set font size for better readability in tables
         font = QFont()
@@ -159,6 +200,7 @@ class MainWindow(QMainWindow):
         self.ui.sales_summary_table.verticalHeader().setFont(font)
         self.ui.top_products_table.verticalHeader().setFont(font)
         self.ui.top_employees_table.verticalHeader().setFont(font)
+        self.ui.returned_items_table.verticalHeader().setFont(font)
 
         # Checkout table with larger font and hidden internal columns
         self.set_table(self.ui.checkout_table)
@@ -170,15 +212,45 @@ class MainWindow(QMainWindow):
         # Default "To Date" for reports = Today
         self.ui.to_date.setDate(QDate.currentDate())
 
-        # Update dashboard info and item statuses
+        # Update dashboard info and item statuses in the background
         self.set_header_info_texts()
-        self.inventory_data.update_item_statuses()
+        self._fire_and_forget(self.inventory_data.update_item_statuses)
 
 
     def switch_to_checkout_page(self):
         """Switch the stacked widget to show the checkout page."""
         self.ui.stackedWidget.setCurrentIndex(0)
         self.ui.barcode_lineEdit.setFocus()  # Immediate focus for scanning barcode
+
+    # ── threading helpers ─────────────────────────────────────────────────────
+
+    def _run_worker(self, fn, *args, on_result=None, on_error=None, **kwargs):
+        """Start a background worker and keep relay alive until it finishes."""
+        key_holder = [None]
+
+        def wrap(callback):
+            def wrapped(value):
+                self._threads.pop(key_holder[0], None)
+                if callback:
+                    callback(value)
+            return wrapped
+
+        thread, relay = run_worker(
+            fn, *args,
+            on_result=wrap(on_result),
+            on_error=wrap(on_error),
+            **kwargs
+        )
+        key = id(relay)
+        key_holder[0] = key
+        self._threads[key] = (thread, relay)
+        return thread
+
+    def _fire_and_forget(self, fn, *args, **kwargs):
+        """Run a DB operation in the background with no UI callback."""
+        self._run_worker(fn, *args, **kwargs)
+
+    # ─────────────────────────────────────────────────────────────────────────
     
     def switch_to_inventory_page(self):
         """Switch the stacked widget to show the inventory page."""
@@ -237,7 +309,7 @@ class MainWindow(QMainWindow):
         # Update widgets based on current sidebar state
         if self.sidebar_expanded:
             # Expanded state - show full text and larger logo
-            self.ui.logo.setText("Supermarket\nManager")
+            self.ui.logo.setText("Supermarket\nManagement\n     System")
             self.ui.logo.setMinimumWidth(170)
             self.ui.logo.setStyleSheet("""font-size: 20px;""")
             self.ui.checkout_btn.setText(" Checkout")
@@ -250,9 +322,9 @@ class MainWindow(QMainWindow):
                 btn.setStyleSheet("""text-align: left; padding-left: 10px; qproperty-iconSize: 33px 33px""")
         else:
             # Collapsed state - show only icons
-            self.ui.logo.setText("S.M.")
-            self.ui.logo.setMinimumWidth(60)
-            self.ui.logo.setStyleSheet(""" font-size: 27px; """)
+            self.ui.logo.setText("S.M.S")
+            self.ui.logo.setMinimumWidth(80)
+            self.ui.logo.setStyleSheet(""" font-size: 22px; """)
             for btn in (self.ui.checkout_btn, self.ui.inventory_btn, self.ui.reports_btn, 
             self.ui.users_btn, self.ui.exit_btn):
                 btn.setText("")
@@ -263,53 +335,60 @@ class MainWindow(QMainWindow):
     def checkout_add_item(self):
         """Add an item to the checkout list based on barcode input."""
         barcode = self.ui.barcode_lineEdit.text()
-        try:
-            # Attempt to find item in inventory
-            item = self.inventory_data.checkout_find(barcode)
-        except ValueError as e:
-            # Show error if item not found
-            QMessageBox.warning(self, "Add Item Failed", str(e))
-            self.ui.barcode_lineEdit.clear()
-            self.ui.barcode_lineEdit.setFocus()
-        else: 
-            # Check if item already exists in checkout
+
+        self.ui.barcode_lineEdit.setEnabled(False)
+        self.ui.checkout_add_item.setEnabled(False)
+
+        def fetch():
+            return self.inventory_data.checkout_find(barcode)
+
+        def on_result(item):
+            self.ui.barcode_lineEdit.setEnabled(True)
+            self.ui.checkout_add_item.setEnabled(True)
+
             repeated_item = False
             quantity = 1
             for index, row in enumerate(self.checkout_list):
                 if barcode == row["Barcode"]:
                     repeated_item = True
-                    # Increment quantity if item exists
                     quantity = int(row["Quantity"]) + 1
-                    line_total = quantity * Decimal(item.get("Net Price").strip("$").replace(",", ""))
-                    # Update existing item
+                    line_total = quantity * Decimal(item.get("Net Price").strip("$").replace(",", ""))  # type: ignore
                     self.checkout_list[index] = {"Username": self.username,
-                                                "SKU": item.get("SKU"),
-                                                "Barcode": item.get("Barcode"),
-                                                "Item Name": item.get("Item Name"),
-                                                "Quantity": str(quantity),
-                                                "Unit Price": item.get("Price per Unit"),
-                                                "Discount": item.get("Discount"),
-                                                "Net Price": item.get("Net Price"),
-                                                "Line Total": f"${line_total.quantize(Decimal('0.01')):,}"}
+                                                 "SKU": item.get("SKU"),
+                                                 "Barcode": item.get("Barcode"),
+                                                 "Item Name": item.get("Item Name"),
+                                                 "Quantity": str(quantity),
+                                                 "Unit Price": item.get("Price per Unit"),
+                                                 "Discount": item.get("Discount"),
+                                                 "Net Price": item.get("Net Price"),
+                                                 "Line Total": f"${line_total.quantize(Decimal('0.01')):,}"}
                     break
             if not repeated_item:
-                # Add new item to checkout
-                self.checkout_list.append({ "Username": self.username, 
-                                            "SKU": item.get("SKU"),
-                                            "Barcode": item.get("Barcode"),
-                                            "Item Name": item.get("Item Name"),
-                                            "Quantity": "1",
-                                            "Unit Price": item.get("Price per Unit"),
-                                            "Discount": item.get("Discount"),
-                                            "Net Price": item.get("Net Price"),
-                                            "Line Total": item.get("Net Price")})
-            # Refresh checkout display
+                self.checkout_list.append({"Username": self.username,
+                                           "SKU": item.get("SKU"),
+                                           "Barcode": item.get("Barcode"),
+                                           "Item Name": item.get("Item Name"),
+                                           "Quantity": "1",
+                                           "Unit Price": item.get("Price per Unit"),
+                                           "Discount": item.get("Discount"),
+                                           "Net Price": item.get("Net Price"),
+                                           "Line Total": item.get("Net Price")})
             self.load_checkout_table()
             self.ui.checkout_table.clearSelection()
             self.checkout_get_total()
             self.ui.barcode_lineEdit.clear()
             self.ui.barcode_lineEdit.setFocus()
-            self.inventory_data.update_item_statuses()
+            self._fire_and_forget(self.inventory_data.update_item_statuses)
+
+        def on_error(msg):
+            self.ui.barcode_lineEdit.setEnabled(True)
+            self.ui.checkout_add_item.setEnabled(True)
+            clean_msg = str(msg).strip().splitlines()[-1]
+            QMessageBox.warning(self, "Add Item Failed", clean_msg)
+            self.ui.barcode_lineEdit.clear()
+            self.ui.barcode_lineEdit.setFocus()
+
+        self._run_worker(fetch, on_result=on_result, on_error=on_error)
 
     def checkout_cancel_sale(self):
         """Cancel the current sale and clear the checkout list."""
@@ -333,41 +412,53 @@ class MainWindow(QMainWindow):
         """
         table_row_index = self.ui.checkout_table.currentRow()
 
-        if table_row_index != -1:
-            barcode = self.ui.checkout_table.item(table_row_index, 0).text()  # type: ignore
-            quantity = int(self.ui.checkout_table.item(table_row_index, 2).text())  # type: ignore
-            
-            # Adjust quantity based on operation
-            if operation == "+":
-                checkout_quantity = self.checkout_count_item_quantity(barcode)
-                stock_quantity = self.inventory_data.count_item_quantity(barcode)
+        if table_row_index == -1:
+            QMessageBox.warning(self, "No Selection", "Select an item before changing its quantity.")
+            self.ui.barcode_lineEdit.setFocus()
+            return
 
-                # Check if adding one more unit would exceed available stock
-                if (checkout_quantity + 1) > stock_quantity:
-                    QMessageBox.warning(self, "Stock Limit Reached", 
-                                        "Cannot add more of this item. It exceeds available stock.")
-                    return
-                else:
-                    # When it is safe, increase quantity by one
-                    quantity += 1
-            elif operation == "-":
-                if quantity > 1:
-                    quantity -= 1
-                else:
-                    quantity = 1  # Prevent zero or negative quantities
+        barcode = self.ui.checkout_table.item(table_row_index, 0).text()  # type: ignore
+        quantity = int(self.ui.checkout_table.item(table_row_index, 2).text())  # type: ignore
 
-            # Update the checkout list
+        if operation == "-":
+            # No DB call needed — pure Python update
+            quantity = max(1, quantity - 1)
             row = self.checkout_list[table_row_index]
             row["Quantity"] = str(quantity)
             net_price = Decimal(row["Net Price"].replace(",", "").strip("$"))
-            # Calculate line total
             row["Line Total"] = f"${(net_price * Decimal(quantity)).quantize(Decimal('0.01')):,}"
             self.load_checkout_table()
             self.checkout_get_total()
             self.ui.barcode_lineEdit.setFocus()
-        else:
-            QMessageBox.warning(self, "No Selection", "Select an item before changing its quantity.")
+            return
+
+        # "+" requires a DB stock check
+        self.ui.increase_item_btn.setEnabled(False)
+        checkout_quantity = self.checkout_count_item_quantity(barcode)
+
+        def fetch():
+            return self.inventory_data.count_item_quantity(barcode)
+
+        def on_result(stock_quantity):
+            self.ui.increase_item_btn.setEnabled(True)
+            if (checkout_quantity + 1) > stock_quantity:
+                QMessageBox.warning(self, "Stock Limit Reached",
+                                    "Cannot add more of this item. It exceeds available stock.")
+                return
+            new_qty = quantity + 1
+            row = self.checkout_list[table_row_index]
+            row["Quantity"] = str(new_qty)
+            net_price = Decimal(row["Net Price"].replace(",", "").strip("$"))
+            row["Line Total"] = f"${(net_price * Decimal(new_qty)).quantize(Decimal('0.01')):,}"
+            self.load_checkout_table()
+            self.checkout_get_total()
             self.ui.barcode_lineEdit.setFocus()
+
+        def on_error(msg):
+            self.ui.increase_item_btn.setEnabled(True)
+            QMessageBox.warning(self, "Stock Check Failed", msg)
+
+        self._run_worker(fetch, on_result=on_result, on_error=on_error)
     
     def checkout_delete_item(self):
         """Remove an item from the checkout list."""
@@ -391,21 +482,34 @@ class MainWindow(QMainWindow):
         """Show popup to manually set item quantity in checkout."""
         table_row_index = self.ui.checkout_table.currentRow()
 
-        if table_row_index != -1:
-            barcode = self.ui.checkout_table.item(table_row_index, 0).text()  # type: ignore
-            current_row_quantity = int(self.ui.checkout_table.item(table_row_index, 2).text()) # type: ignore
-            checkout_quantity = self.checkout_count_item_quantity(barcode)
-            stock_quantity = self.inventory_data.count_item_quantity(barcode)
-            popup = SetQuantity(self.checkout_list, barcode, 
+        if table_row_index == -1:
+            QMessageBox.warning(self, "No Selection", "Select a row before setting quantity.")
+            return
+
+        barcode = self.ui.checkout_table.item(table_row_index, 0).text()  # type: ignore
+        current_row_quantity = int(self.ui.checkout_table.item(table_row_index, 2).text())  # type: ignore
+        checkout_quantity = self.checkout_count_item_quantity(barcode)
+
+        self.ui.set_quantity_btn.setEnabled(False)
+
+        def fetch():
+            return self.inventory_data.count_item_quantity(barcode)
+
+        def on_result(stock_quantity):
+            self.ui.set_quantity_btn.setEnabled(True)
+            popup = SetQuantity(self.checkout_list, barcode,
                                 current_row_quantity, checkout_quantity, stock_quantity, table_row_index)
             popup.exec()
-            # Refresh checkout display
             self.load_checkout_table()
             self.ui.checkout_table.clearSelection()
             self.checkout_get_total()
             self.ui.barcode_lineEdit.setFocus()
-        else:
-            QMessageBox.warning(self, "No Selection", "Select a row before setting quantity.")
+
+        def on_error(msg):
+            self.ui.set_quantity_btn.setEnabled(True)
+            QMessageBox.warning(self, "Stock Check Failed", msg)
+
+        self._run_worker(fetch, on_result=on_result, on_error=on_error)
     
     def checkout_discount_item_popup(self):
         """
@@ -430,38 +534,55 @@ class MainWindow(QMainWindow):
         """Add one unstacked promotional (free) unit of the selected item in the checkout table."""
         table_row_index = self.ui.checkout_table.currentRow()
 
-        if table_row_index != -1:
-            item_name = self.ui.checkout_table.item(table_row_index, 1).text() # type: ignore
-            confirm = QMessageBox.question(self,"Add Free Unit",
-                f"Add a free promotional unit of '{item_name}' to the checkout?")
+        if table_row_index == -1:
+            QMessageBox.warning(self, "No Selection", "Select an item before adding a free unit.")
+            return
 
-            if confirm == QMessageBox.StandardButton.Yes:
-                barcode = self.ui.checkout_table.item(table_row_index, 0).text()  # type: ignore
-                # Prevent exceeding available stock
-                checkout_quantity = self.checkout_count_item_quantity(barcode)
-                stock_quantity = self.inventory_data.count_item_quantity(barcode)
-                if checkout_quantity + 1 > stock_quantity:
-                    QMessageBox.warning(self, "Stock Limit Reached", 
-                                        "Cannot add more of this item. It exceeds available stock.")
-                else:
-                    item = self.inventory_data.checkout_find(barcode)
-                    # 100% discount and $0 ensure it's treated as a free unit in totals
-                    self.checkout_list.append({ "Username": self.username, 
-                                            "SKU": item.get("SKU"),
-                                            "Barcode": item.get("Barcode"),
-                                            "Item Name": item.get("Item Name"),
-                                            "Quantity": "1",
-                                            "Unit Price": item.get("Price per Unit"),
-                                            "Discount": "100%",
-                                            "Net Price": "$0",
-                                            "Line Total": "$0"})
-                    # Refresh checkout display
-                    self.load_checkout_table()
-                    self.ui.checkout_table.clearSelection()
-                    self.checkout_get_total()
-                    self.ui.barcode_lineEdit.clear()
-                    self.ui.barcode_lineEdit.setFocus()
-                    self.inventory_data.update_item_statuses()
+        item_name = self.ui.checkout_table.item(table_row_index, 1).text()  # type: ignore
+        confirm = QMessageBox.question(self, "Add Free Unit",
+            f"Add a free promotional unit of '{item_name}' to the checkout?")
+
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        barcode = self.ui.checkout_table.item(table_row_index, 0).text()  # type: ignore
+        checkout_quantity = self.checkout_count_item_quantity(barcode)
+
+        self.ui.add_free_unit_btn.setEnabled(False)
+
+        def fetch():
+            stock_quantity = self.inventory_data.count_item_quantity(barcode)
+            item = self.inventory_data.checkout_find(barcode)
+            return stock_quantity, item
+
+        def on_result(result):
+            self.ui.add_free_unit_btn.setEnabled(True)
+            stock_quantity, item = result
+            if checkout_quantity + 1 > stock_quantity:
+                QMessageBox.warning(self, "Stock Limit Reached",
+                                    "Cannot add more of this item. It exceeds available stock.")
+                return
+            self.checkout_list.append({"Username": self.username,
+                                       "SKU": item.get("SKU"),
+                                       "Barcode": item.get("Barcode"),
+                                       "Item Name": item.get("Item Name"),
+                                       "Quantity": "1",
+                                       "Unit Price": item.get("Price per Unit"),
+                                       "Discount": "100%",
+                                       "Net Price": "$0",
+                                       "Line Total": "$0"})
+            self.load_checkout_table()
+            self.ui.checkout_table.clearSelection()
+            self.checkout_get_total()
+            self.ui.barcode_lineEdit.clear()
+            self.ui.barcode_lineEdit.setFocus()
+            self._fire_and_forget(self.inventory_data.update_item_statuses)
+
+        def on_error(msg):
+            self.ui.add_free_unit_btn.setEnabled(True)
+            QMessageBox.warning(self, "Error", msg)
+
+        self._run_worker(fetch, on_result=on_result, on_error=on_error)
 
     def checkout_count_item_quantity(self, barcode):
         """
@@ -569,33 +690,42 @@ class MainWindow(QMainWindow):
         if not self.checkout_list:
             QMessageBox.warning(self, "Empty List", "The checkout list is empty!")
             return
-        else:
-            # First reduce stock quantities for all items
-            for item in self.checkout_list:
-                try:
-                    self.inventory_data.reduce_stock_quantity(item["Barcode"], item["Quantity"], item["Item Name"])
-                except ValueError as e:
-                    QMessageBox.warning(self, "Stock Reduction Failed", str(e))
-                    return  # Abort if any reduction fails
 
-            # Record the sale if all reductions succeeded
-            self.sales_data.record_sales(self.checkout_list)
+        self.ui.checkout_btn_2.setEnabled(False)
+        self.ui.checkout_btn_2.setText("Processing...")
+
+        # Snapshot the list so the worker has a stable copy
+        items_snapshot = list(self.checkout_list)
+
+        def do_finalize():
+            for item in items_snapshot:
+                self.inventory_data.reduce_stock_quantity(
+                    item["Barcode"], item["Quantity"], item["Item Name"])
+            self.sales_data.record_sales(items_snapshot, self._user_uuid)
             self.inventory_data.update_item_statuses()
-            # Reset checkout state
+
+        def on_result(_):
+            self.ui.checkout_btn_2.setEnabled(True)
+            self.ui.checkout_btn_2.setText("Checkout")
             self.checkout_list = []
             self.checkout_payment_selection("Reset")
             self.load_checkout_table()
             self.checkout_get_total()
-            # Refresh inventory display
             self.load_table(self.ui.inventory_table, INVENTORY_DATA)
             self.set_header_info_texts()
             self.ui.barcode_lineEdit.setFocus()
-            # Update all reports
             self.filter_sales_history_table()
             self.filter_sales_summary_table()
             self.filter_top_employees_table()
             self.filter_top_products_table()
             QMessageBox.information(self, "Checkout Complete", "Checkout completed successfully.")
+
+        def on_error(msg):
+            self.ui.checkout_btn_2.setEnabled(True)
+            self.ui.checkout_btn_2.setText("Checkout")
+            QMessageBox.warning(self, "Checkout Failed", msg)
+
+        self._run_worker(do_finalize, on_result=on_result, on_error=on_error)
 
     def load_checkout_table(self):
         """Load the checkout items into the checkout table."""
@@ -614,9 +744,8 @@ class MainWindow(QMainWindow):
         table_row_index = self.ui.inventory_table.currentRow()
 
         if table_row_index != -1:
-            barcode = self.ui.inventory_table.item(table_row_index, 3).text()  # type: ignore
-            batch_number = self.ui.inventory_table.item(table_row_index, 4).text()  # type: ignore
-            popup = DiscountItem(INVENTORY_DATA, barcode, batch_number)
+            batch_number = self.ui.inventory_table.item(table_row_index, 1).text()  # col 1 = Batch Number
+            popup = DiscountItem(batch_number, inventory_data=self.inventory_data)
             popup.exec()
             # Refresh inventory after discount change
             self.load_table(self.ui.inventory_table, INVENTORY_DATA)
@@ -624,25 +753,34 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.warning(self, "No Selection", "Select a row before applying discount.")
 
+    def open_products_popup(self):
+        """Open the Products popup, refreshing data each time."""
+        self.products_popup.load_products()
+        self.products_popup.exec()
+        # Reload inventory table and stats in case any product names/categories changed
+        self.load_table(self.ui.inventory_table, INVENTORY_DATA)
+        self.set_header_info_texts()
+
     def filter_sales_history_table(self):
         """Filter sales history table by date range."""
         from_date = self.ui.from_date.date().toPython()
-        to_date = self.ui.to_date.date().toPython()
+        to_date   = self.ui.to_date.date().toPython()
 
-        matched_data = self.sales_data.sort_by_date_interval(from_date, to_date)
+        def fetch():
+            return self.sales_data.sort_by_date_interval(from_date, to_date)
 
-        # Set number of rows based on filtered data
-        self.ui.sales_history_table.setRowCount(len(matched_data))
-        
-        headers = ["Username", "SKU", "Barcode", "Order ID", "Item Name", 
-                   "Quantity", "Unit Price", "Discount", 
-                    "Net Price", "Line Total", "Sale Date"]
+        def on_result(matched_data):
+            self.ui.sales_history_table.setRowCount(len(matched_data))
+            headers = ["Username", "SKU", "Barcode", "Order ID", "Item Name",
+                       "Quantity", "Unit Price", "Discount",
+                       "Net Price", "Line Total", "Sale Date"]
+            for row_index, row_dict in enumerate(matched_data):
+                for column_index, header in enumerate(headers):
+                    value = row_dict.get(header, "")
+                    self.ui.sales_history_table.setItem(
+                        row_index, column_index, QTableWidgetItem(str(value)))
 
-        # Populate table with filtered data
-        for row_index, row_dict in enumerate(matched_data):
-            for column_index, header in enumerate(headers):
-                value = row_dict.get(header)
-                self.ui.sales_history_table.setItem(row_index, column_index, QTableWidgetItem(str(value)))
+        self._run_worker(fetch, on_result=on_result)
             
     def reset_sales_history_table(self):
         """Reset sales history date filters to default range."""
@@ -652,198 +790,207 @@ class MainWindow(QMainWindow):
     def filter_sales_summary_table(self):
         """Filter sales summary table by selected time period."""
         filter_date = self.ui.filter_summary_comboBox.currentText()
-        top_products_data = self.sales_data.get_sales_summary_data(filter_date)
 
-        # Clear the current table
-        self.ui.sales_summary_table.setRowCount(0)
+        def fetch():
+            return self.sales_data.get_sales_summary_data(filter_date)
 
-        # Set the number of rows in the table to match the number of filtered records
-        self.ui.sales_summary_table.setRowCount(len(top_products_data))
+        def on_result(data):
+            self.ui.sales_summary_table.setRowCount(0)
+            self.ui.sales_summary_table.setRowCount(len(data))
+            for row_index, row in enumerate(data):
+                self.ui.sales_summary_table.setItem(row_index, 0, QTableWidgetItem(row[0]))              # Date
+                self.ui.sales_summary_table.setItem(row_index, 1, QTableWidgetItem(str(row[1])))         # Total orders
+                self.ui.sales_summary_table.setItem(row_index, 2, QTableWidgetItem(str(row[2])))         # Total quantity
+                self.ui.sales_summary_table.setItem(row_index, 3, QTableWidgetItem(f"${row[3]:,}"))      # Gross sales
+                self.ui.sales_summary_table.setItem(row_index, 4, QTableWidgetItem(f"${row[4]:,}"))      # Discounts
+                self.ui.sales_summary_table.setItem(row_index, 5, QTableWidgetItem(f"${row[5]:,}"))      # Net sales
+                self.ui.sales_summary_table.setItem(row_index, 6, QTableWidgetItem(f"${row[6]:,}"))      # Average order value
 
-        # Loop through each matched record and insert into the table
-        for row_index, row in enumerate(top_products_data):
-            self.ui.sales_summary_table.setItem(row_index, 0, QTableWidgetItem(row[0]))              # Date
-            self.ui.sales_summary_table.setItem(row_index, 1, QTableWidgetItem(str(row[1])))         # Total orders
-            self.ui.sales_summary_table.setItem(row_index, 2, QTableWidgetItem(str(row[2])))         # Total quantity
-            self.ui.sales_summary_table.setItem(row_index, 3, QTableWidgetItem(f"${row[3]:,}"))      # Gross sales
-            self.ui.sales_summary_table.setItem(row_index, 4, QTableWidgetItem(f"${row[4]:,}"))      # Discounts
-            self.ui.sales_summary_table.setItem(row_index, 5, QTableWidgetItem(f"${row[5]:,}"))      # Net sales
-            self.ui.sales_summary_table.setItem(row_index, 6, QTableWidgetItem(f"${row[6]:,}"))      # Average order value
+        self._run_worker(fetch, on_result=on_result)
 
     def filter_top_products_table(self):
         """Filter top products table by selected time period."""
         filter_date = self.ui.filter_products_comboBox.currentText()
-        top_products_data = self.sales_data.get_top_products_data(filter_date)
 
-        # Clear the current table
-        self.ui.top_products_table.setRowCount(0)
+        def fetch():
+            return self.sales_data.get_top_products_data(filter_date)
 
-        # Set the number of rows in the table to match the number of filtered records
-        self.ui.top_products_table.setRowCount(len(top_products_data))
+        def on_result(data):
+            self.ui.top_products_table.setRowCount(0)
+            self.ui.top_products_table.setRowCount(len(data))
+            for row_index, row in enumerate(data):
+                self.ui.top_products_table.setItem(row_index, 0, QTableWidgetItem(row[0]))              # Item name
+                self.ui.top_products_table.setItem(row_index, 1, QTableWidgetItem(row[1]))              # Sku
+                self.ui.top_products_table.setItem(row_index, 2, QTableWidgetItem(row[2]))              # Barcode
+                self.ui.top_products_table.setItem(row_index, 3, QTableWidgetItem(str(row[3])))         # Quantity sold
+                self.ui.top_products_table.setItem(row_index, 4, QTableWidgetItem(f"${row[4]:,}"))      # Total revenue
 
-        # Loop through each matched record and insert into the table
-        for row_index, row in enumerate(top_products_data):
-            self.ui.top_products_table.setItem(row_index, 0, QTableWidgetItem(row[0]))              # Item name
-            self.ui.top_products_table.setItem(row_index, 1, QTableWidgetItem(row[1]))              # Sku
-            self.ui.top_products_table.setItem(row_index, 2, QTableWidgetItem(row[2]))              # Barcode
-            self.ui.top_products_table.setItem(row_index, 3, QTableWidgetItem(str(row[3])))         # Quantity sold
-            self.ui.top_products_table.setItem(row_index, 4, QTableWidgetItem(f"${row[4]:,}"))      # Total revenue
+        self._run_worker(fetch, on_result=on_result)
 
     def filter_top_employees_table(self):
         """Filter top employees table by selected time period."""
         filter_date = self.ui.filter_employees_comboBox.currentText()
-        top_employees_data = self.sales_data.get_top_employees_data(filter_date)
 
-        # Clear the current table
-        self.ui.top_employees_table.setRowCount(0)
+        def fetch():
+            rows = self.sales_data.get_top_employees_data(filter_date)
+            # Augment each row with role from DB
+            result = []
+            for row in rows:
+                role = self.user_data.get_role(row[0])
+                result.append((row[0], str(role), str(row[1]), str(row[2]), row[3]))
+            return result
 
-        # Set the number of rows in the table to match the number of filtered records
-        self.ui.top_employees_table.setRowCount(len(top_employees_data))
+        def on_result(data):
+            self.ui.top_employees_table.setRowCount(0)
+            self.ui.top_employees_table.setRowCount(len(data))
+            for row_index, row in enumerate(data):
+                self.ui.top_employees_table.setItem(row_index, 0, QTableWidgetItem(row[0]))
+                self.ui.top_employees_table.setItem(row_index, 1, QTableWidgetItem(row[1]))
+                self.ui.top_employees_table.setItem(row_index, 2, QTableWidgetItem(row[2]))
+                self.ui.top_employees_table.setItem(row_index, 3, QTableWidgetItem(row[3]))
+                self.ui.top_employees_table.setItem(row_index, 4, QTableWidgetItem(f"${row[4]:,}"))
 
-        # Loop through each matched record and insert into the table
-        for row_index, row in enumerate(top_employees_data):
-            self.ui.top_employees_table.setItem(row_index, 0, QTableWidgetItem(row[0]))              # Username
-            role = self.user_data.get_role(row[0])
-            self.ui.top_employees_table.setItem(row_index, 1, QTableWidgetItem(str(role)))           # Role
-            self.ui.top_employees_table.setItem(row_index, 2, QTableWidgetItem(str(row[1])))         # Transactions
-            self.ui.top_employees_table.setItem(row_index, 3, QTableWidgetItem(str(row[2])))         # Items sold
-            self.ui.top_employees_table.setItem(row_index, 4, QTableWidgetItem(f"${row[3]:,}"))      # Total revenue
+        self._run_worker(fetch, on_result=on_result)
 
-    def add_popup_ui(self, popup_obj, table_widget, csv_file_path, columns=None):
+    def add_popup_ui(self, popup_obj, table_widget, table_name):
         """
         Show the add popup and reload the table after adding.
-        
-        Args:
-            popup_obj: The popup window object to show
-            table_widget: The table widget to reload after adding
-            csv_file_path: Path to the CSV file or table name to load into the table
-            columns (list, optional): List of column names to select in order (Supabase tables only)
-        """
-        # Display add popup window
-        popup_obj.exec()
-        # Reload the table to reflect the newly added record
-        self.load_table(table_widget, csv_file_path, columns)
-        self.set_header_info_texts()  # Update summary counts and values
-        self.inventory_data.update_item_statuses()  # Refresh inventory statuses
 
-    def update_ui(self, popup_obj, table_widget, csv_file_path, columns=None):
+        Args:
+            popup_obj: The popup window object to show.
+            table_widget: The table widget to reload after adding.
+            table_name (str): Table name passed to load_table for refresh.
+        """
+        popup_obj.exec()
+        # Reload the table in the background after the popup closes
+        self.load_table(table_widget, table_name)
+        self.set_header_info_texts()
+        self._fire_and_forget(self.inventory_data.update_item_statuses)
+
+    def update_ui(self, popup_obj, table_widget, table_name):
         """
         Show the update popup for the selected item and reload the table.
-        
+
         Args:
-            popup_obj: The popup window object to show
-            table_widget: The table widget containing the item to update
-            csv_file_path: Path to the CSV file or table name to load into the table
-            columns (list, optional): List of column names to select in order (Supabase tables only)
+            popup_obj: The popup window object to show.
+            table_widget: The table widget containing the item to update.
+            table_name (str): Table name passed to load_table for refresh.
         """
-        # Get the index of the currently selected row in the table
         selected_row = table_widget.currentRow()
-
-        # Proceed only if a row is selected
         if selected_row != -1:
-            # Determine which table is being updated and get the appropriate key
             if table_widget == self.ui.user_table:
-                keyword = table_widget.item(selected_row, 0).text()  # Username as key
+                keyword = table_widget.item(selected_row, 0).text()
             elif table_widget == self.ui.inventory_table:
-                keyword = table_widget.item(selected_row, 4).text()  # Batch number as key
+                keyword = table_widget.item(selected_row, 1).text()  # col 1 = Batch Number
 
-            # Open the update dialog pre-filled with the selected item's data
             popup_obj.perform_update(keyword)  # type: ignore
             popup_obj.exec()
 
-            # Refresh inventory statuses after update
-            self.inventory_data.update_item_statuses()
-            # Reload the table to reflect the updated record
-            self.load_table(table_widget, csv_file_path, columns)
-            self.set_header_info_texts()  # Update summary counts and values
-
-            # Clear selection to avoid confusion after reload
+            self._fire_and_forget(self.inventory_data.update_item_statuses)
+            self.load_table(table_widget, table_name)
+            self.set_header_info_texts()
             table_widget.clearSelection()
-
         else:
             QMessageBox.warning(self, "No Selection", "Select a row before updating.")
 
-    def delete_ui(self, data_obj, table_widget, csv_file_path, columns=None):
+    def delete_ui(self, data_obj, table_widget, table_name):
         """
         Delete the selected item after confirmation and reload the table.
-        
+
         Args:
-            data_obj: The data handler object (UserDatabase or InventoryData)
-            table_widget: The table widget containing the item to delete
-            csv_file_path: Path to the CSV file or table name to load into the table
-            columns (list, optional): List of column names to select in order (Supabase tables only)
+            data_obj: The data handler object (UserDatabase or InventoryData).
+            table_widget: The table widget containing the item to delete.
+            table_name (str): Table name passed to load_table for refresh.
         """
-        # Get the index of the currently selected row in the table
         selected_row = table_widget.currentRow()
 
-        # Proceed only if a row is selected
-        if selected_row != -1:
-            # Determine which table is being deleted from and get the appropriate key
-            if table_widget == self.ui.user_table:
-                keyword = table_widget.item(selected_row, 0).text()  # Username as key
-                info_text = f"user '{keyword}'"
-            elif table_widget == self.ui.inventory_table:
-                keyword = table_widget.item(selected_row, 4).text()  # Batch number as key
-                item_name = table_widget.item(selected_row, 1).text()  # type: ignore
-                info_text = f"item '{item_name}' with batch number {keyword}"
-
-            # Ask for confirmation before deleting
-            confirm = QMessageBox.question(self, "Confirm Delete",
-                    f"Are you sure you want to remove the {info_text}?")  # type: ignore
-
-            if confirm == QMessageBox.StandardButton.Yes:
-                # Delete the record via the data handler
-                data_obj.delete(keyword)  # type: ignore
-                # Reload the table to reflect the deletion
-                self.load_table(table_widget, csv_file_path, columns)
-                self.set_header_info_texts()  # Update summary counts and values
-                table_widget.clearSelection()  # Clear selection after reload
-                QMessageBox.information(self, "Deleted",
-                f"The {info_text} was removed successfully.")  # type: ignore
-
-        else:
+        if selected_row == -1:
             QMessageBox.warning(self, "No Selection", "Select a row before deleting.")
-
-    def search_ui(self, data_obj, table_widget, csv_file_path, lineEdit):
-        """
-        Search for items matching the text in the search box.
-        
-        Args:
-            data_obj: The data handler object (UserDatabase, InventoryData or SalesData)
-            table_widget: The table widget to display results in
-            csv_file_path: Path to the CSV file to load if search is empty
-            lineEdit: The QLineEdit widget containing the search text
-        """
-        # Get search keyword
-        keyword = lineEdit.text()
-
-        # Show all data if search box is empty
-        if keyword == "":
-            # Load the entire table
-            self.load_table(table_widget, csv_file_path)
             return
 
-        # Get matching data as a list
-        matched_data = data_obj.search(keyword)
+        if table_widget == self.ui.user_table:
+            keyword = table_widget.item(selected_row, 0).text()
+            info_text = f"user '{keyword}'"
+        elif table_widget == self.ui.inventory_table:
+            keyword = table_widget.item(selected_row, 1).text()   # col 1 = Batch Number
+            item_name = table_widget.item(selected_row, 0).text()  # col 0 = Item Name
+            info_text = f"item '{item_name}' with batch number {keyword}"
 
-        if matched_data is not None: 
-            table_widget.setRowCount(len(matched_data))
-            # Fill the table by iterating over each row and each item in that row
-            for row_index, row in enumerate(matched_data):
-                for column_index, item in enumerate(row):
-                    table_widget.setItem(row_index, column_index, QTableWidgetItem(item))
+        confirm = QMessageBox.question(self, "Confirm Delete",
+                  f"Are you sure you want to remove the {info_text}?")  # type: ignore
 
-    def clear_search_ui(self, table_widget, csv_file_path, lineEdit):
+        if confirm == QMessageBox.StandardButton.Yes:
+            for btn in (self.ui.delete_user_btn, self.ui.delete_item_btn):
+                btn.setEnabled(False)
+
+            def do_delete():
+                data_obj.delete(keyword)  # type: ignore
+
+            def on_result(_):
+                for btn in (self.ui.delete_user_btn, self.ui.delete_item_btn):
+                    btn.setEnabled(True)
+                self.load_table(table_widget, table_name)
+                self.set_header_info_texts()
+                table_widget.clearSelection()
+                QMessageBox.information(self, "Deleted",
+                    f"The {info_text} was removed successfully.")  # type: ignore
+
+            def on_error(msg):
+                for btn in (self.ui.delete_user_btn, self.ui.delete_item_btn):
+                    btn.setEnabled(True)
+                QMessageBox.warning(self, "Delete Failed", msg)
+
+            self._run_worker(do_delete, on_result=on_result, on_error=on_error)
+
+    def search_ui(self, data_obj, table_widget, table_name, lineEdit):
+        """
+        Search for items matching the text in the search box.
+
+        Args:
+            data_obj: The data handler object (UserDatabase, InventoryData, or SalesData).
+            table_widget: The table widget to display results in.
+            table_name (str): Table name passed to load_table when search is cleared.
+            lineEdit: The QLineEdit widget containing the search text.
+        """
+        keyword = lineEdit.text()
+
+        if keyword == "":
+            self.load_table(table_widget, table_name)
+            return
+
+        # Snapshot keyword so the lambda captures the right value
+        kw = keyword
+
+        def fetch():
+            return data_obj.search(kw)
+
+        def on_result(matched_data):
+            # Only apply if the search box still matches (user may have kept typing)
+            if lineEdit.text() != kw:
+                return
+            if matched_data is not None:
+                table_widget.setRowCount(len(matched_data))
+                col_count = table_widget.columnCount()
+                for row_index, row in enumerate(matched_data):
+                    for column_index, item in enumerate(row):
+                        if column_index >= col_count:
+                            break
+                        table_widget.setItem(row_index, column_index, QTableWidgetItem(item))
+                    if table_widget is self.ui.inventory_table and len(row) > 9:
+                        self._color_inventory_row(table_widget, row_index, row[9])
+
+        self._run_worker(fetch, on_result=on_result)
+
+    def clear_search_ui(self, table_widget, table_name, lineEdit):
         """
         Clear the search box and reload the full table.
-        
+
         Args:
-            table_widget: The table widget to reload
-            csv_file_path: Path to the CSV file to load
-            lineEdit: The QLineEdit widget to clear
+            table_widget: The table widget to reload.
+            table_name (str): Table name passed to load_table for refresh.
+            lineEdit: The QLineEdit widget to clear.
         """
-        # Reload the table
-        self.load_table(table_widget, csv_file_path)
+        self.load_table(table_widget, table_name)
         lineEdit.clear()  # Clear search input
 
     def list_by_status(self, status):
@@ -853,15 +1000,31 @@ class MainWindow(QMainWindow):
         Args:
             status (str): The status to filter by (Low Stock, Out of Stock, Expired)
         """
-        self.inventory_data.update_item_statuses()
-        matched_items = self.inventory_data.find_by_status(status)
+        for btn in (self.ui.low_stock_btn, self.ui.out_of_stock_btn, self.ui.expired_btn):
+            btn.setEnabled(False)
 
-        self.ui.inventory_table.setRowCount(len(matched_items))
+        def fetch():
+            return self.inventory_data.find_by_status(status)
 
-        # Fill the table by iterating over each row and each item in that row
-        for row_index, row_list in enumerate(matched_items):
-            for column_index, item in enumerate(row_list):
-                self.ui.inventory_table.setItem(row_index, column_index, QTableWidgetItem(item))
+        def on_result(matched_items):
+            for btn in (self.ui.low_stock_btn, self.ui.out_of_stock_btn, self.ui.expired_btn):
+                btn.setEnabled(True)
+            self.ui.inventory_table.setRowCount(len(matched_items))
+            col_count = self.ui.inventory_table.columnCount()
+            for row_index, row_list in enumerate(matched_items):
+                for column_index, item in enumerate(row_list):
+                    if column_index >= col_count:
+                        break
+                    self.ui.inventory_table.setItem(row_index, column_index, QTableWidgetItem(item))
+                if len(row_list) > 9:
+                    self._color_inventory_row(self.ui.inventory_table, row_index, row_list[9])
+
+        def on_error(msg):
+            for btn in (self.ui.low_stock_btn, self.ui.out_of_stock_btn, self.ui.expired_btn):
+                btn.setEnabled(True)
+            QMessageBox.warning(self, "Filter Failed", msg)
+
+        self._run_worker(fetch, on_result=on_result, on_error=on_error)
 
     def set_table(self, table_widget):
         """
@@ -880,67 +1043,125 @@ class MainWindow(QMainWindow):
         # Make clicking any cell select the entire row for better UX
         table_widget.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
 
-    def set_header_info_texts(self):
-        """Update all the informational labels in the UI headers."""
-        # Inventory summary information
-        self.ui.total_items_lbl.setText(f"{self.inventory_data.count_items()}")
-        self.ui.stock_value_lbl.setText(self.inventory_data.calculate_stock_value('Price'))
-        self.ui.stock_cost_lbl.setText(self.inventory_data.calculate_stock_value('Cost'))
-        self.ui.low_stock_lbl.setText(f"{self.inventory_data.count_items('Low Stock')}")
-        self.ui.out_of_stock_lb.setText(f"{self.inventory_data.count_items('Out of Stock')}")
-        self.ui.expired_lbl.setText(f"{self.inventory_data.count_items('Expired')}")
-        # User summary information
-        self.ui.total_users_lbl.setText(f"{self.user_data.count_users()}")
-        self.ui.admins_lbl.setText(f"{self.user_data.count_users('Admin')}")
-        self.ui.managers_lbl.setText(f"{self.user_data.count_users('Manager')}")
-        self.ui.cashiers_lbl.setText(f"{self.user_data.count_users('Cashier')}")
+    def _color_inventory_row(self, table_widget, row_index, status_value):
+        """Apply foreground color to the Status cell (col 9) of an inventory row."""
+        item = table_widget.item(row_index, 9)
+        if item is None:
+            return
+        val = status_value.strip().lower()
+        if val == "available":
+            item.setForeground(Qt.GlobalColor.darkGreen)
+        elif val == "low stock":
+            item.setForeground(Qt.GlobalColor.darkYellow)
+        elif val == "out of stock":
+            item.setForeground(Qt.GlobalColor.red)
+        elif val == "expired":
+            from PySide6.QtGui import QColor
+            item.setForeground(QColor("#7f8c8d"))
 
-    def load_table(self, table_widget, table_name, columns=None):
+    def set_header_info_texts(self):
+        """Update all the informational labels in the UI headers (runs DB queries in background)."""
+        def fetch():
+            return {
+                'total_items':  self.inventory_data.count_items(),
+                'stock_value':  self.inventory_data.calculate_stock_value('Price'),
+                'stock_cost':   self.inventory_data.calculate_stock_value('Cost'),
+                'low_stock':    self.inventory_data.count_items('Low Stock'),
+                'out_of_stock': self.inventory_data.count_items('Out of Stock'),
+                'expired':      self.inventory_data.count_items('Expired'),
+                'total_users':  self.user_data.count_users(),
+                'admins':       self.user_data.count_users('Admin'),
+                'managers':     self.user_data.count_users('Manager'),
+                'cashiers':     self.user_data.count_users('Cashier'),
+            }
+
+        def on_result(data):
+            self.ui.total_items_lbl.setText(str(data['total_items']))
+            self.ui.stock_value_lbl.setText(data['stock_value'])
+            self.ui.stock_cost_lbl.setText(data['stock_cost'])
+            self.ui.low_stock_lbl.setText(str(data['low_stock']))
+            self.ui.out_of_stock_lb.setText(str(data['out_of_stock']))
+            self.ui.expired_lbl.setText(str(data['expired']))
+            self.ui.total_users_lbl.setText(str(data['total_users']))
+            self.ui.admins_lbl.setText(str(data['admins']))
+            self.ui.managers_lbl.setText(str(data['managers']))
+            self.ui.cashiers_lbl.setText(str(data['cashiers']))
+
+        self._run_worker(fetch, on_result=on_result)
+
+    def load_table(self, table_widget, table_name):
         """
-        Load data into a table widget from Supabase (users) or CSV (inventory/sales).
+        Load data into a table widget from the database.
 
         Args:
             table_widget: The table widget to populate.
-            table_name (str): Supabase table name ("users") or CSV file path for others.
-            columns (list, optional): List of column names to select in order (Supabase only).
-                                    If None, selects all columns in default order.
+            table_name (str): One of "users", "inventory", or "sales".
         """
-        try:
+        def fetch():
             if table_name == "users":
-                # Build select string from columns list, or fetch all if not specified
-                select_str = ", ".join(columns) if columns else "*"
-                response = self.user_data.supabase.table("users").select(select_str).execute()
-                rows = []
-                for row in (response.data or []):
-                    if isinstance(row, dict):
-                        if columns:
-                            # Extract values in the exact order specified by columns
-                            # This prevents dict ordering issues from Supabase responses
-                            rows.append([row.get(col) for col in columns])
-                        else:
-                            rows.append(list(row.values()))
-            else:
-                # Load inventory/sales data directly from CSV file
-                rows = []
-                with open(table_name, "r", newline="") as file:
-                    reader = csv.reader(file)
-                    rows = list(reader)[1:]  # Skip header row
+                response = self.user_data.supabase.table("users").select("username, role, created_at").execute()
+                return [
+                    [row.get("username"), row.get("role"), row.get("created_at")]
+                    for row in (response.data or []) if isinstance(row, dict)
+                ]
+            elif table_name == "inventory":
+                return self.inventory_data.search("")
+            elif table_name == "sales":
+                return self.sales_data.search("")
 
-            # Clear the table if no data is returned
+        def on_result(rows):
             if not rows:
                 table_widget.setRowCount(0)
                 return
-
-            # Set the number of rows to match the data
             table_widget.setRowCount(len(rows))
-
-            # Fill the table row by row, column by column
+            col_count = table_widget.columnCount()
             for row_index, row in enumerate(rows):
                 for column_index, value in enumerate(row):
-                    table_widget.setItem(row_index, column_index, QTableWidgetItem(str(value)))
+                    if column_index >= col_count:
+                        break
+                    display_value = str(value) if value is not None else ""
+                    table_widget.setItem(row_index, column_index, QTableWidgetItem(display_value))
+                if table_widget is self.ui.inventory_table and len(row) > 9:
+                    self._color_inventory_row(table_widget, row_index, str(row[9]))
 
-        except Exception as e:
-            QMessageBox.warning(self, "Load Error", f"Failed to load data: {str(e)}")
+        def on_error(msg):
+            QMessageBox.warning(self, "Load Error", f"Failed to load data: {msg}")
+
+        self._run_worker(fetch, on_result=on_result, on_error=on_error)
+
+    def open_return_item_popup(self):
+        """Open the Return Item dialog."""
+        self.return_item_popup.exec()
+
+    def _on_return_complete(self):
+        """Refresh relevant tables after a return has been processed."""
+        self.load_table(self.ui.sales_history_table, SALES_DATA)
+        self.load_returned_items_table()
+        self.filter_sales_summary_table()
+        self.filter_top_products_table()
+        self.filter_top_employees_table()
+
+    def load_returned_items_table(self, keyword=None):
+        """Load (or search) the Returned Items report table."""
+        def fetch():
+            return self.sales_data.get_returned_items_display(keyword=keyword)
+
+        def on_result(rows):
+            self.ui.returned_items_table.setRowCount(0)
+            if not rows:
+                return
+            self.ui.returned_items_table.setRowCount(len(rows))
+            for row_index, row in enumerate(rows):
+                for col_index, value in enumerate(row):
+                    self.ui.returned_items_table.setItem(
+                        row_index, col_index,
+                        QTableWidgetItem(str(value) if value is not None else ""))
+
+        def on_error(msg):
+            QMessageBox.warning(self, "Load Error",
+                                f"Failed to load returned items: {msg}")
+
+        self._run_worker(fetch, on_result=on_result, on_error=on_error)
 
     def account_popup_ui(self):
         """Show account information popup and handle logout."""

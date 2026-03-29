@@ -1,550 +1,712 @@
-import csv 
 import os
 import re
 from datetime import datetime, date
 from decimal import Decimal
+from dotenv import load_dotenv
+from supabase import create_client
 
 class InventoryData():
     """
-    Handles inventory management tasks including adding, updating, deleting, searching, 
-    and reporting on inventory items stored in a CSV file.
-
-    Responsibilities:
-      Initializes inventory structure with predefined fields if file doesn't exist.
-      Validates and records new stock entries.
-      Updates existing items and applies discounts.
-      Filters, searches, and counts items by various criteria.
-      Reduces stock quantities during checkout and updates statuses based on stock level and expiry.
-      Calculates total inventory value based on cost or selling price.
+    Handles inventory management with product and inventory (batch) tables.
+    
+    Schema:
+    - product: category, item_name, sku, barcode, minimum_stock, availability
+    - inventory: product_id, batch_number, quantity, cost_per_unit (cents), 
+                 price_per_unit (cents), discount (0-100), net_price (cents),
+                 received_date, expiry_date, expiry_condition (boolean)
     """
-    def __init__(self, filename):
-        """
-        Initialize the InventoryData instance.
+    def __init__(self, supabase=None, access_token=None, refresh_token=None):
+        """Initialize with Supabase credentials and session tokens.
+
+        The supabase parameter is accepted but not stored — each worker thread
+        creates its own client via thread-local storage to avoid corrupting the
+        shared httpx HTTP/2 connection pool.
 
         Args:
-            filename (str): Path to the CSV file used for storing inventory records.
+            supabase: Unused. Kept for call-site compatibility.
+            access_token (str): JWT from the logged-in session. Passed to every
+                                thread-local client so RLS policies apply correctly.
+            refresh_token (str): Refresh token paired with access_token.
         """
-        # Initialize inventory file and field structure
-        self.filename = filename
-        self.fieldnames = [
-            "Category", "Item Name", "SKU", "Barcode", "Batch Number",
-            "Quantity", "Minimum Stock", "Cost per Unit", "Price per Unit", 
-            "Discount", "Net Price", "Received Date", "Expiry Date", "Status"
-        ]
+        import threading
+        load_dotenv()
+        self._url = os.getenv("SUPABASE_URL")
+        self._key = os.getenv("SUPABASE_KEY")
+        if not self._url or not self._key:
+            raise ValueError("Missing Supabase credentials in .env file")
 
-        # Ensure the folder exists before file creation
-        folder = os.path.dirname(self.filename)
-        if folder and not os.path.exists(folder):
-            os.makedirs(folder)
-        # Initialize data file with headers if missing
-        if not os.path.exists(self.filename):
-            with open(self.filename, "w", newline="") as file:
-                writer = csv.DictWriter(file, fieldnames=self.fieldnames)
-                writer.writeheader()
+        # Auth tokens inherited from the logged-in UserDatabase session.
+        self._access_token = access_token
+        self._refresh_token = refresh_token
+
+        # Thread-local storage: each thread gets its own supabase client
+        # and therefore its own httpx HTTP/2 connection pool.
+        # Sharing one client across threads corrupts the HTTP/2 pool.
+        self._local = threading.local()
+
+        # barcode (int) → product_id cache shared across threads.
+        # Product IDs never change, so this is safe to share.
+        # Python dict reads/writes are GIL-protected for simple key lookups.
+        self._product_id_cache: dict = {}
+
+    @property
+    def supabase(self):
+        """Return a thread-local supabase client, creating one if needed."""
+        if not hasattr(self._local, 'client'):
+            client = create_client(self._url, self._key)
+            if self._access_token and self._refresh_token:
+                try:
+                    # set_session validates the JWT via a network call to /auth/v1/user.
+                    # If that round-trip succeeds, supabase-py automatically updates
+                    # the postgrest auth headers for us.
+                    client.auth.set_session(self._access_token, self._refresh_token)
+                except Exception:
+                    # set_session timed out or failed. Fall back to setting the JWT
+                    # directly on the postgrest client — no network call needed.
+                    # postgrest-py's .auth() mutates session.headers in-place and
+                    # returns self, so RLS-protected queries still work correctly.
+                    client.postgrest.auth(self._access_token)
+            self._local.client = client
+        return self._local.client
     
     def add_item(self, category, item_name, barcode, batch_number, 
-             quantity, minimum_stock, cost_per_unit, price_per_unit, expiry_date):
+                 quantity, minimum_stock, cost_per_unit, price_per_unit, expiry_date):
         """
-        Add a new inventory item with field validation and auto-generated SKU, status, and data fields.
-        """
+        Add a new inventory batch. Creates product if doesn't exist.
         
-        # Clean and validate input values
+        Args:
+            cost_per_unit (Decimal): Price in dollars
+            price_per_unit (Decimal): Price in dollars
+        """
+        # Validate inputs
         item_name = item_name.strip().title()
         InventoryValidator.validate_item_name(item_name)
-        barcode = barcode.strip()
-        InventoryValidator.validate_barcode(barcode)
+        barcode = int(barcode.strip())
         batch_number = batch_number.strip().upper()
-        InventoryValidator.validate_batch_number(self.filename, barcode, batch_number)
         InventoryValidator.validate_numeric_fields(quantity, minimum_stock, cost_per_unit, price_per_unit)
-
-        # Automatically generate derived fields
-        sku = InventoryHelpers.generate_SKU(self.filename, category, item_name)
-        status = InventoryHelpers.set_item_status(quantity, minimum_stock, expiry_date)
-        received_date = date.today().strftime("%d/%m/%Y")  # Store current date as receiving date
-
-        # Compute Net Price from price and discount
-        discount = Decimal("0")  # Default discount 0%
-        price = Decimal(price_per_unit)
-        net_price = price * (Decimal("1") - discount / Decimal("100"))
-
-        # Read current inventory to preserve existing records
-        with open(self.filename, "r", newline="") as file:
-            reader = csv.DictReader(file)
-            existing_rows = list(reader)
-
-        # Build the complete inventory entry
-        new_row = {
-            "Category": category,
-            "Item Name": item_name,
-            "SKU": sku,
-            "Barcode": barcode,
-            "Batch Number": batch_number,
-            "Quantity": quantity,
-            "Minimum Stock": minimum_stock,
-            "Cost per Unit": f"${Decimal(cost_per_unit).quantize(Decimal('0.01')):,}",
-            "Price per Unit": f"${Decimal(price_per_unit).quantize(Decimal('0.01')):,}",
-            "Discount": f"{discount}%",  # Default discount for new items
-            "Net Price": f"${net_price.quantize(Decimal('0.01')):,}",
-            "Received Date": received_date,
-            "Expiry Date": expiry_date.strftime("%d/%m/%Y"),
-            "Status": status  # Stock status based on quantity and expiry
-        }
-
-        # Write updated inventory with new item at the top
-        with open(self.filename, "w", newline="") as file:
-            writer = csv.DictWriter(file, fieldnames=self.fieldnames)
-            writer.writeheader()
-            writer.writerow(new_row)       # Add new item first
-            writer.writerows(existing_rows)  # Then append previous inventory
-
-    def update_item(self, new_category, new_item_name, batch_number, new_quantity, new_minimum_stock,
-                new_cost_per_unit, new_price_per_unit, new_expiry_date):
-        """
-        Update an existing inventory item identified by batch number, validating inputs and recalculating derived fields.
-        """
-        # Track whether the item was found and updated
-        updated = False
         
-        # Validate updated fields before applying changes
+        # Convert prices from dollars to cents
+        cost_cents = int(cost_per_unit * 100)
+        price_cents = int(price_per_unit * 100)
+        
+        # Find or create product
+        product = self.supabase.table("product").select("*").eq(
+            "barcode", barcode
+        ).execute()
+        
+        if not product.data:
+            # Create new product
+            sku = InventoryHelpers.generate_SKU(self.supabase, category, item_name)
+            new_product = {
+                "category": category,
+                "item_name": item_name,
+                "sku": sku,
+                "barcode": barcode,
+                "minimum_stock": minimum_stock,
+                "availability": "available"
+            }
+            product_response = self.supabase.table("product").insert(new_product).execute()
+            product_id = product_response.data[0]["id"]
+        else:
+            product_id = product.data[0]["id"]
+        
+        # Calculate net price and expiry condition
+        discount = 0  # Default no discount
+        net_price = price_cents * (100 - discount) // 100
+        expiry_condition = date.today() > expiry_date
+        
+        # Create inventory batch
+        batch = {
+            "product_id": product_id,
+            "batch_number": batch_number,
+            "quantity": quantity,
+            "cost_per_unit": cost_cents,
+            "price_per_unit": price_cents,
+            "discount": discount,
+            "net_price": net_price,
+            "received_date": datetime.now().isoformat(),
+            "expiry_date": expiry_date.isoformat(),
+            "expiry_condition": expiry_condition
+        }
+        
+        self.supabase.table("inventory").insert(batch).execute()
+        
+        # Update product availability
+        self._update_product_availability(product_id)
+
+    def update_item(self, new_category, new_item_name, batch_number, new_quantity, 
+                    new_minimum_stock, new_cost_per_unit, new_price_per_unit, new_expiry_date,
+                    new_batch_number=None):
+        """Update an inventory batch and its product."""
+        # Validate
         InventoryValidator.validate_item_name(new_item_name)
         InventoryValidator.validate_numeric_fields(new_quantity, new_minimum_stock, 
-                                                new_cost_per_unit, new_price_per_unit)
+                                                    new_cost_per_unit, new_price_per_unit)
         
-        # Generate updated SKU and status based on new data
-        new_sku = InventoryHelpers.generate_SKU(self.filename, new_category, new_item_name)
-        new_status = InventoryHelpers.set_item_status(new_quantity, new_minimum_stock, new_expiry_date)
-
-        # Load current inventory to find and modify the matching item
-        with open(self.filename, "r", newline="") as file:
-            reader = csv.DictReader(file)
-            items = list(reader)  # Load all items into memory for editing
-
-            # Locate the item by batch number and update its fields
-            for row in items:
-                if row.get("Batch Number") == batch_number:
-                    row["Category"] = new_category
-                    row["Item Name"] = new_item_name.strip().title()
-                    row["SKU"] = new_sku
-                    row["Quantity"] = new_quantity
-                    row["Minimum Stock"] = new_minimum_stock
-                    row["Cost per Unit"] = f"${new_cost_per_unit:,}"
-                    row["Price per Unit"] = f"${new_price_per_unit:,}"
-                    row["Expiry Date"] = new_expiry_date.strftime("%d/%m/%Y")
-                    row["Status"] = new_status
-
-                    # Recalculate Net Price using existing discount and new price
-                    discount = Decimal(row.get("Discount").strip("%")) #type: ignore
-                    price = Decimal(new_price_per_unit)
-                    net_price = price * (Decimal("1") - discount / Decimal("100"))
-                    row["Net Price"] = f"${net_price.quantize(Decimal('0.01')):,}"
-
-                    updated = True  # Confirm successful update
-                    break
-
-        # Raise an error if the batch number was not found
-        if not updated:
-            raise ValueError(f"Item batch number '{batch_number}' not found.")
-
-        # Save the updated inventory back to the file
-        with open(self.filename, "w", newline="") as file:
-            writer = csv.DictWriter(file, self.fieldnames)
-            writer.writeheader()
-            writer.writerows(items)
+        # Convert to cents
+        cost_cents = int(new_cost_per_unit * 100)
+        price_cents = int(new_price_per_unit * 100)
+        
+        # Get batch
+        batch = self.supabase.table("inventory").select("*, product_id").eq(
+            "batch_number", batch_number
+        ).execute()
+        
+        if not batch.data:
+            raise ValueError(f"Batch '{batch_number}' not found")
+        
+        product_id = batch.data[0]["product_id"]
+        discount = batch.data[0]["discount"]
+        
+        # Calculate new values
+        net_price = price_cents * (100 - discount) // 100
+        expiry_condition = date.today() > new_expiry_date
+        
+        # Update batch
+        update_data = {
+            "quantity": new_quantity,
+            "cost_per_unit": cost_cents,
+            "price_per_unit": price_cents,
+            "net_price": net_price,
+            "expiry_date": new_expiry_date.isoformat(),
+            "expiry_condition": expiry_condition
+        }
+        if new_batch_number and new_batch_number != batch_number:
+            update_data["batch_number"] = new_batch_number.strip().upper()
+        
+        self.supabase.table("inventory").update(update_data).eq(
+            "batch_number", batch_number
+        ).execute()
+        
+        # Update product
+        new_sku = InventoryHelpers.generate_SKU(self.supabase, new_category, new_item_name)
+        self.supabase.table("product").update({
+            "category": new_category,
+            "item_name": new_item_name.strip().title(),
+            "sku": new_sku,
+            "minimum_stock": new_minimum_stock
+        }).eq("id", product_id).execute()
+        
+        # Update availability
+        self._update_product_availability(product_id)
 
     def search(self, keyword):
         """
-        Search inventory items by checking if the keyword matches the start of key fields (case-insensitive).
-
-        Args:
-            keyword (str): The search term to match against inventory fields.
-
-        Returns:
-            list: A list of matching inventory rows where the keyword is a prefix in relevant fields.
+        Search inventory batches with product info.
+        Returns rows formatted for UI display with status column.
         """
-        # Convert to lowercase for case-insensitive matching
         keyword = keyword.lower()
-        matched_items = []
-
-        # Open the inventory file and read all items (skip header)
-        with open(self.filename, "r", newline="") as file:
-            reader = csv.reader(file)
-            items = list(reader)[1:]  # Exclude header row
-
-            # Check if the keyword matches the start of any of the selected fields: 
-            # Category, Item Name, SKU, or Barcode (columns 1 to 4)
-            for row in items:
-                if any(row[i].lower().startswith(keyword) for i in range(1, 5)):
-                    matched_items.append(row)
-
-        return matched_items
+        
+        # Get all inventory with product details
+        response = self.supabase.table("inventory").select(
+            "*, product(category, item_name, sku, barcode, availability, minimum_stock)"
+        ).execute()
+        
+        matched = []
+        for row in (response.data or []):
+            if isinstance(row, dict) and row.get("product"):
+                product = row["product"]
+                # Search in category, item_name, sku, barcode, batch_number
+                searchable = f"{product.get('category', '')} {product.get('item_name', '')} {product.get('sku', '')} {str(product.get('barcode', ''))} {row.get('batch_number', '')}".lower()
+                
+                if keyword in searchable or searchable.startswith(keyword):
+                    # Calculate status for display
+                    status = self._calculate_status(row, product)
+                    
+                    # Format for UI - column order matches ui_main.py:
+                    # Item Name, Batch Number, Quantity, Cost per Unit, Price per Unit,
+                    # Discount, Net Price, Received Date, Expiry Date, Status
+                    ui_row = [
+                        product.get("item_name"),
+                        row.get("batch_number"),
+                        str(row.get("quantity")),
+                        f"${row.get('cost_per_unit', 0) / 100:.2f}",
+                        f"${row.get('price_per_unit', 0) / 100:.2f}",
+                        f"{row.get('discount')}%",
+                        f"${row.get('net_price', 0) / 100:.2f}",
+                        row.get("received_date"),
+                        row.get("expiry_date"),
+                        status
+                    ]
+                    matched.append(ui_row)
+        
+        return matched
     
     def checkout_find(self, barcode):
         """
-        Locate the inventory item matching the barcode with available stock, prioritizing earliest expiry.
-
-        Args:
-            barcode (str): The barcode of the item to find.
-
-        Returns:
-            dict: The inventory record for the matching item with the soonest expiry date.
+        Find available inventory batch for checkout (FIFO by expiry).
+        Returns dict with product and batch info.
         """
-        barcode = barcode.strip()
-        # Validate barcode format
-        InventoryValidator.validate_barcode(barcode)
-
-        matches = []
-        # Collect all items with matching barcode and positive quantity
-        with open(self.filename, "r", newline="") as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                expiry = datetime.strptime(row.get("Expiry Date"), "%d/%m/%Y").date() # type: ignore
-                today = date.today()
-                if row.get("Barcode") == barcode and int(row.get("Quantity")) > 0 and today <= expiry:  # type: ignore
-                    matches.append(row)
+        try:
+            barcode = int(barcode.strip())
+        except ValueError:
+            raise ValueError("Please enter a valid barcode number (digits only).")
         
-        # Raise error if no available stock found for barcode
-        if not matches:
-            raise ValueError("No available stock found for the entered barcode.")
-                
-        # Choose the item with the earliest expiry date (FIFO by expiry)
-        earliest_expiry = datetime.strptime("9/9/9999", "%d/%m/%Y")  # Placeholder far future date
-        for row in matches:
-            expiry = datetime.strptime(row.get("Expiry Date"), "%d/%m/%Y")
-            if expiry < earliest_expiry:
-                earliest_expiry = expiry
-                item = row
-
-        return item # type: ignore
+        # Get product
+        product = self.supabase.table("product").select("*").eq(
+            "barcode", barcode
+        ).execute()
+        
+        if not product.data:
+            raise ValueError("Product not found")
+        
+        product_id = product.data[0]["id"]
+        # Cache so count_item_quantity skips the product lookup for this barcode
+        self._product_id_cache[barcode] = product_id
+        
+        # Get non-expired batches with quantity > 0, ordered by expiry
+        batches = self.supabase.table("inventory").select("*").eq(
+            "product_id", product_id
+        ).eq("expiry_condition", False).gt("quantity", 0).order(
+            "expiry_date", desc=False
+        ).execute()
+        
+        if not batches.data:
+            raise ValueError("No available stock found for the entered barcode")
+        
+        # Return first batch (earliest expiry)
+        batch = batches.data[0]
+        
+        # Format for checkout (match what checkout expects)
+        return {
+            "SKU": product.data[0]["sku"],
+            "Barcode": str(barcode),
+            "Item Name": product.data[0]["item_name"],
+            "Price per Unit": f"${batch['price_per_unit'] / 100:.2f}",
+            "Discount": f"{batch['discount']}%",
+            "Net Price": f"${batch['net_price'] / 100:.2f}"
+        }
 
     def delete(self, batch_number):
-        """
-        Remove an inventory item identified by its unique batch number.
-
-        Args:
-            batch_number (str): The batch number of the item to delete.
-        """
-        # Load all items except the one with the given batch number
-        with open(self.filename, "r", newline="") as file:
-            reader = csv.DictReader(file)
-            items = [row for row in reader if row.get("Batch Number") != batch_number]
-
-        # Save the filtered list back to the file, effectively deleting the item
-        with open(self.filename, "w", newline="") as file:
-            writer = csv.DictWriter(file, fieldnames=self.fieldnames)
-            writer.writeheader()
-            writer.writerows(items)
+        """Delete an inventory batch."""
+        # Get product_id before deleting
+        batch = self.supabase.table("inventory").select("product_id").eq(
+            "batch_number", batch_number
+        ).execute()
+        
+        if not batch.data:
+            raise ValueError(f"Batch '{batch_number}' not found")
+        
+        product_id = batch.data[0]["product_id"]
+        
+        # Delete batch
+        self.supabase.table("inventory").delete().eq(
+            "batch_number", batch_number
+        ).execute()
+        
+        # Update product availability
+        self._update_product_availability(product_id)
 
     def find_by_status(self, status):
-        """
-        Retrieve all inventory items matching a specific status.
+        """Find inventory batches by status, filtering at the DB level.
 
-        Args:
-            status (str): The inventory status to filter by (e.g., 'Expired', 'Low Stock').
-
-        Returns:
-            list: A list of rows (items) that have the given status.
+        For availability-based statuses (Available, Low Stock, Out of Stock)
+        we query the product table first — PostgREST cannot filter on embedded
+        foreign-table columns, so the old .eq("product.availability", ...) was
+        silently ignored and every row was fetched. Querying products first and
+        using .in_("product_id", ids) pushes the filter to the database and
+        returns only the rows we actually need.
         """
-        matched_items = []
-        with open(self.filename, "r", newline="") as file:
-            reader = csv.reader(file)
-            for row in reader:
-                # Check if row has enough columns and status matches the requested one
-                if len(row) >= 14 and row[13] == status:
-                    matched_items.append(row)
-        return matched_items
+        status_lower = status.lower()
+
+        if status_lower == "expired":
+            # expiry_condition lives on the inventory table — filter directly
+            response = self.supabase.table("inventory").select(
+                "*, product(category, item_name, sku, barcode, availability, minimum_stock)"
+            ).eq("expiry_condition", True).execute()
+        else:
+            # Map UI label → DB availability value
+            avail_map = {
+                "available":    "available",
+                "low stock":    "low stock",
+                "out of stock": "out of stock",
+            }
+            db_avail = avail_map.get(status_lower)
+            if db_avail is None:
+                return []
+
+            # Step 1: fetch only matching product IDs — small, fast query
+            products = self.supabase.table("product").select("id").eq(
+                "availability", db_avail
+            ).execute()
+
+            if not products.data:
+                return []
+
+            product_ids = [p["id"] for p in products.data]
+
+            # Step 2: fetch inventory rows for those products only
+            response = self.supabase.table("inventory").select(
+                "*, product(category, item_name, sku, barcode, availability, minimum_stock)"
+            ).in_("product_id", product_ids).execute()
+
+        matched = []
+        for row in (response.data or []):
+            if isinstance(row, dict) and row.get("product"):
+                product = row["product"]
+                calc_status = self._calculate_status(row, product)
+                if calc_status.lower() != status_lower:
+                    continue
+                ui_row = [
+                        product.get("item_name"),
+                        row.get("batch_number"),
+                        str(row.get("quantity")),
+                        f"${row.get('cost_per_unit', 0) / 100:.2f}",
+                        f"${row.get('price_per_unit', 0) / 100:.2f}",
+                        f"{row.get('discount')}%",
+                        f"${row.get('net_price', 0) / 100:.2f}",
+                        row.get("received_date"),
+                        row.get("expiry_date"),
+                        calc_status
+                    ]
+                matched.append(ui_row)
+
+        return matched
 
     def calculate_stock_value(self, value_type):
-        """
-        Calculate the total inventory value based on either cost or net price.
-
-        Args:
-            value_type (str): Specify 'cost' to calculate based on cost per unit,
-                            or 'price' to calculate based on net selling price.
-
-        Returns:
-            str: Formatted total value as a string with two decimal places and commas.
-        """
-        # Determine which column to use for calculation
-        if value_type.lower() == "cost":
-            column_name = "Cost per Unit"
-        elif value_type.lower() == "price":
-            column_name = "Net Price"
-        else:
-            raise ValueError("Invalid value type")
-
-        total = Decimal('0')
-        # Calculate sum of quantity multiplied by unit value for all items
-        with open(self.filename, "r", newline="") as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                total += Decimal(row.get("Quantity")) * Decimal(row.get(column_name).strip("$").replace(",",""))  # type: ignore
-        return f"${total.quantize(Decimal('0.01')):,}"
+        """Calculate total inventory value."""
+        response = self.supabase.table("inventory").select("quantity, cost_per_unit, net_price").execute()
+        
+        total = 0
+        for row in (response.data or []):
+            qty = row.get("quantity", 0)
+            if value_type.lower() == "cost":
+                total += qty * row.get("cost_per_unit", 0)
+            else:
+                total += qty * row.get("net_price", 0)
+        
+        # Convert cents to dollars
+        return f"${total / 100:.2f}"
 
     def count_items(self, status=None):
-        """
-        Count inventory items optionally filtered by status.
+        """Count inventory batches by status."""
+        if not status:
+            # Count all batches
+            response = self.supabase.table("inventory").select("id", count="exact").execute()  # type: ignore
+            return response.count or 0
+        
+        # Count by status
+        response = self.supabase.table("inventory").select(
+            "*, product(availability)"
+        ).execute()
+        
+        count = 0
+        for row in (response.data or []):
+            if isinstance(row, dict) and row.get("product"):
+                calc_status = self._calculate_status(row, row["product"])
+                if calc_status.lower() == status.lower():
+                    count += 1
+        
+        return count
 
-        Args:
-            status (str, optional): Inventory status to filter by (e.g., "Available", "Expired").
-                                    If None, counts all items.
-
-        Returns:
-            int: Number of items matching the filter or total items if no filter is applied.
-        """
-        total = 0
-        with open(self.filename, "r", newline="") as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                if not status:  # Count all items if no status filter
-                    total += 1
-                elif row.get("Status").lower() == status.lower():  #type:ignore
-                    total += 1
-        return total
-    
     def count_item_quantity(self, barcode):
-        """
-        Get the quantity available for a specific item by barcode.
+        """Get total available quantity for a product."""
+        barcode = int(barcode)
 
-        Args:
-            barcode (str): Barcode of the item.
-        Returns:
-            int: Quantity available for the specified item. Returns 0 if not found.
-        """
-        total_item_quantity = 0
-        with open(self.filename, "r", newline="") as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                if row.get("Barcode") == barcode and row.get("Status") != "Expired":
-                    total_item_quantity += int(row.get("Quantity"))  # type: ignore
-        return total_item_quantity
+        # Use cached product_id if checkout_find already looked it up —
+        # this saves one DB round trip on every +/- button press.
+        if barcode in self._product_id_cache:
+            product_id = self._product_id_cache[barcode]
+        else:
+            product = self.supabase.table("product").select("id").eq("barcode", barcode).execute()
+            if not product.data:
+                return 0
+            product_id = product.data[0]["id"]
+            self._product_id_cache[barcode] = product_id
+
+        # Sum quantities of non-expired batches
+        batches = self.supabase.table("inventory").select("quantity").eq(
+            "product_id", product_id
+        ).eq("expiry_condition", False).execute()
+        
+        total = sum(row.get("quantity", 0) for row in (batches.data or []))
+        return total
 
     def reduce_stock_quantity(self, barcode, quantity_to_reduce, item_name):
-        """
-        Decrease stock quantity for a given barcode after a checkout, validating availability.
-
-        Args:
-            barcode (str): Barcode of the item to reduce.
-            quantity_to_reduce (str): Number of units to deduct from stock.
-            item_name (str): Name of the item (used in error messages).
-
-        Notes:
-            Uses FIFO (first-expired-first-out) logic to reduce stock from oldest batches first.
-        """
+        """Reduce stock using FIFO (earliest expiry first)."""
+        barcode = int(barcode)
         quantity_to_reduce = int(quantity_to_reduce)
         
-        # Calculate total available stock for this barcode excluding expired items
-        total_stock_quantity = self.count_item_quantity(barcode)
-        # Validate sufficient stock before proceeding
-        if total_stock_quantity < quantity_to_reduce:
+        # Get product
+        product = self.supabase.table("product").select("id").eq("barcode", barcode).execute()
+        if not product.data:
+            raise ValueError(f"Product not found")
+        
+        product_id = product.data[0]["id"]
+        
+        # Check available stock
+        total_available = self.count_item_quantity(barcode)
+        if total_available < quantity_to_reduce:
             raise ValueError(
-                f"Not enough stock for item '{item_name}' or the item is expired.\n"
-                f"Requested quantity: {quantity_to_reduce}, available: {total_stock_quantity}."
+                f"Not enough stock for item '{item_name}'.\n"
+                f"Requested: {quantity_to_reduce}, available: {total_available}."
             )
+        
+        # Get batches ordered by expiry (FIFO)
+        batches = self.supabase.table("inventory").select("*").eq(
+            "product_id", product_id
+        ).eq("expiry_condition", False).order("expiry_date", desc=False).execute()
+        
+        remaining = quantity_to_reduce
+        for batch in (batches.data or []):
+            if remaining <= 0:
+                break
+            
+            batch_qty = batch.get("quantity", 0)
+            batch_id = batch.get("id")
+            
+            if batch_qty >= remaining:
+                # This batch has enough
+                new_qty = batch_qty - remaining
+                self.supabase.table("inventory").update({
+                    "quantity": new_qty
+                }).eq("id", batch_id).execute()
+                remaining = 0
+            else:
+                # Use up entire batch
+                self.supabase.table("inventory").update({
+                    "quantity": 0
+                }).eq("id", batch_id).execute()
+                remaining -= batch_qty
+        
+        # Update product availability
+        self._update_product_availability(product_id)
 
-        with open(self.filename, "r", newline="") as file:
-            reader = csv.DictReader(file)
-            items = list(reader)
-            # Reduce stock quantity from oldest batches
-            for row in reversed(items):
-                if row.get("Barcode") == barcode and row.get("Status") != "Expired":
-                    stock_quantity = int(row.get("Quantity"))  # type: ignore
-                    final_quantity = stock_quantity - quantity_to_reduce
+    def get_all_products(self):
+        """
+        Fetch all products ordered by category then item name.
 
-                    if final_quantity >= 0:
-                        row["Quantity"] = str(final_quantity)
-                        break  # Reduction complete
-                    else:
-                        # Use up this batch completely and continue reducing remaining quantity from other batches
-                        row["Quantity"] = "0"
-                        quantity_to_reduce -= stock_quantity
+        Returns:
+            list[dict]: Each dict has keys id, category, item_name, sku,
+                        barcode, minimum_stock, availability.
+        """
+        response = self.supabase.table("product").select(
+            "id, category, item_name, sku, barcode, minimum_stock, availability"
+        ).order("category").order("item_name").execute()
+        return response.data or []
 
-        # Write updated stock back to file
-        with open(self.filename, "w", newline="") as file:
-            writer = csv.DictWriter(file, self.fieldnames)
-            writer.writeheader()
-            writer.writerows(items)
+    def add_product(self, category, item_name, barcode, minimum_stock):
+        """
+        Add a brand-new product (no batch) to the product table.
+
+        Args:
+            category (str): Product category.
+            item_name (str): Product name (will be title-cased).
+            barcode (str): 13-digit EAN barcode string.
+            minimum_stock (int): Reorder threshold.
+
+        Raises:
+            ValueError: If barcode already exists or inputs are invalid.
+        """
+        item_name = item_name.strip().title()
+        InventoryValidator.validate_item_name(item_name)
+        InventoryValidator.validate_barcode(barcode)
+
+        existing = self.supabase.table("product").select("id").eq(
+            "barcode", int(barcode)
+        ).execute()
+        if existing.data:
+            raise ValueError("A product with this barcode already exists.")
+
+        sku = InventoryHelpers.generate_SKU(self.supabase, category, item_name)
+        self.supabase.table("product").insert({
+            "category": category,
+            "item_name": item_name,
+            "sku": sku,
+            "barcode": int(barcode),
+            "minimum_stock": int(minimum_stock),
+            "availability": "out of stock",
+        }).execute()
+
+    def update_product(self, product_id, category, item_name, minimum_stock):
+        """
+        Update a product's editable fields. Barcode is never changed.
+
+        Args:
+            product_id: The product's primary key (uuid or int).
+            category (str): New category.
+            item_name (str): New item name (will be title-cased).
+            minimum_stock (int): New reorder threshold.
+
+        Raises:
+            ValueError: If item_name fails validation or product not found.
+        """
+        item_name = item_name.strip().title()
+        InventoryValidator.validate_item_name(item_name)
+
+        new_sku = InventoryHelpers.generate_SKU(self.supabase, category, item_name)
+        result = self.supabase.table("product").update({
+            "category": category,
+            "item_name": item_name,
+            "sku": new_sku,
+            "minimum_stock": int(minimum_stock),
+        }).eq("id", product_id).execute()
+
+        if not result.data:
+            raise ValueError("Product not found.")
 
     def apply_inventory_discount(self, barcode, batch_number, discount_amount):
-        """
-        Apply a percentage discount to a specific inventory item batch and update net price.
-
-        Args:
-            barcode (str): Barcode of the item to discount.
-            batch_number (str): Batch number of the item.
-            discount_amount (int): Discount percentage to apply.
-
-        Notes:
-            Updates the 'Discount' and 'Net Price' fields for the specified batch.
-        """
-        with open(self.filename, "r", newline="") as file:
-            reader = csv.DictReader(file)
-            items = list(reader)
-            for row in items:
-                if row.get("Barcode") == barcode and row.get("Batch Number") == batch_number:
-                    price = Decimal(row.get("Price per Unit").strip("$").replace(",", ""))  # type: ignore
-                    discounted_price = price - (price * Decimal(discount_amount) / Decimal(100))
-                    row["Discount"] = f"{discount_amount}%"
-                    row["Net Price"] = f"${discounted_price.quantize(Decimal('0.01')):,}"
-                    break
-
-        # Save updated inventory data
-        with open(self.filename, "w", newline="") as file:
-            writer = csv.DictWriter(file, self.fieldnames)
-            writer.writeheader()
-            writer.writerows(items)
+        """Apply discount to a batch."""
+        # Get batch
+        batch = self.supabase.table("inventory").select("price_per_unit").eq(
+            "batch_number", batch_number
+        ).execute()
+        
+        if not batch.data:
+            raise ValueError("Batch not found")
+        
+        price_cents = batch.data[0]["price_per_unit"]
+        net_price = price_cents * (100 - discount_amount) // 100
+        
+        # Update
+        self.supabase.table("inventory").update({
+            "discount": discount_amount,
+            "net_price": net_price
+        }).eq("batch_number", batch_number).execute()
 
     def update_item_statuses(self):
+        """Update expiry_condition for all batches and product availability.
+        Uses bulk UPDATE calls instead of one request per row (N+1).
         """
-        Automatically update inventory item statuses based on expiry dates and stock levels.
-
-        Logic:
-            - Status is set to 'Expired' if current date is past expiry date.
-            - 'Out of Stock' if quantity is zero.
-            - 'Low Stock' if quantity is at or below minimum stock.
-            - Otherwise 'Available'.
-        """
+        from collections import defaultdict
         today = date.today()
 
-        with open(self.filename, "r", newline="") as file:
-            reader = csv.DictReader(file)
-            items = list(reader)
+        batches = self.supabase.table("inventory").select("id, expiry_date").execute()
+        expired_ids, fresh_ids = [], []
+        for batch in (batches.data or []):
+            expiry = datetime.fromisoformat(batch["expiry_date"]).date()
+            (expired_ids if today > expiry else fresh_ids).append(batch["id"])
+        if expired_ids:
+            self.supabase.table("inventory").update({"expiry_condition": True}).in_("id", expired_ids).execute()
+        if fresh_ids:
+            self.supabase.table("inventory").update({"expiry_condition": False}).in_("id", fresh_ids).execute()
 
-        # Update status for each item
-        for row in items:
-            quantity = int(row["Quantity"])
-            minimum_stock = int(row["Minimum Stock"])
-            expiry_date = datetime.strptime(row["Expiry Date"], "%d/%m/%Y").date()
+        all_inv = self.supabase.table("inventory").select("product_id, quantity, expiry_condition").execute()
+        stock_by_product: dict = defaultdict(int)
+        for row in (all_inv.data or []):
+            if not row.get("expiry_condition"):
+                stock_by_product[row["product_id"]] += row.get("quantity", 0)
 
-            row["Status"] = InventoryHelpers.set_item_status(quantity, minimum_stock, expiry_date)
+        products = self.supabase.table("product").select("id, minimum_stock").execute()
+        out_ids, low_ids, avail_ids = [], [], []
+        for product in (products.data or []):
+            pid = product["id"]
+            qty = stock_by_product.get(pid, 0)
+            min_s = product.get("minimum_stock", 0)
+            if qty == 0:
+                out_ids.append(pid)
+            elif qty <= min_s:
+                low_ids.append(pid)
+            else:
+                avail_ids.append(pid)
 
-        # Write updated statuses back to file
-        with open(self.filename, "w", newline="") as file:
-            writer = csv.DictWriter(file, self.fieldnames)
-            writer.writeheader()
-            writer.writerows(items)
+        if out_ids:
+            self.supabase.table("product").update({"availability": "out of stock"}).in_("id", out_ids).execute()
+        if low_ids:
+            self.supabase.table("product").update({"availability": "low stock"}).in_("id", low_ids).execute()
+        if avail_ids:
+            self.supabase.table("product").update({"availability": "available"}).in_("id", avail_ids).execute()
 
+    def _update_product_availability(self, product_id):
+        """Calculate and update product availability based on total quantity."""
+        # Get product minimum_stock
+        product = self.supabase.table("product").select("minimum_stock").eq(
+            "id", product_id
+        ).execute()
+        
+        if not product.data:
+            return
+        
+        min_stock = product.data[0]["minimum_stock"]
+        
+        # Sum all non-expired batch quantities
+        batches = self.supabase.table("inventory").select("quantity").eq(
+            "product_id", product_id
+        ).eq("expiry_condition", False).execute()
+        
+        total_qty = sum(row.get("quantity", 0) for row in (batches.data or []))
+        
+        # Determine availability
+        if total_qty == 0:
+            availability = "out of stock"
+        elif total_qty <= min_stock:
+            availability = "low stock"
+        else:
+            availability = "available"
+        
+        # Update product
+        self.supabase.table("product").update({
+            "availability": availability
+        }).eq("id", product_id).execute()
 
-class InventoryHelpers:
-    """
-    Utility helper class for inventory-related operations.
-
-    Provides static methods for:
-    - Generating unique SKU codes based on category and item name.
-    - Determining item stock status based on quantity, minimum stock, and expiry date.
-    """
-
-    @staticmethod
-    def generate_SKU(filename, category, item_name):
+    def _calculate_status(self, batch, product):
         """
-        Generate a unique SKU (Stock Keeping Unit) for an inventory item.
-
-        SKU format: CATEGORY-ITEMNUMBER-XXX
-          - CATEGORY: First 4 uppercase letters of category
-          - ITEMNUMBER: First 1 to 4 letters + optional digits extracted from item name
-          - XXX: Incrementing 3-digit number ensuring uniqueness
-
-        Args:
-            filename (str): Path to the inventory CSV file to check existing SKUs.
-            category (str): Category name of the item.
-            item_name (str): Item name used to extract SKU components.
-
-        Returns:
-            str: Unique SKU string.
-
-        Process:
-            1. Extract category prefix (first 4 letters, uppercase).
-            2. Extract first letters and digits from item name.
-            3. Append incrementing number starting from 001.
-            4. Check if SKU exists:
-               - If SKU exists with same item name, reuse it.
-               - If SKU exists with different item, increment number and retry.
-            5. Return unique SKU.
+        Calculate display status for a batch.
+        Priority: Out of Stock > Expired > (availability from product)
         """
-        # Extract category prefix (4 letters uppercase)
-        first_part = category[0:4].upper()
-
-        # Extract letters and optional digits from item name
-        second_part = ""
-        result = re.search(r"^([a-z]{1,4})(?:.*?(\d{1,4}))?", item_name, re.IGNORECASE)
-        if result:
-            result_first_part = result.group(1).upper()
-            result_second_part = result.group(2) if result.group(2) else ""
-            second_part = result_first_part + result_second_part
-
-        # Initialize SKU number suffix
-        third_part = 1
-        sku = f"{first_part}-{second_part}-{third_part:03}"
-
-        # Loop to ensure SKU is unique by checking the inventory file
-        retry = True
-        while retry:
-            with open(filename, "r", newline="") as file:
-                reader = csv.DictReader(file)
-                for row in reader:
-                    if row.get("SKU") == sku:
-                        # If SKU exists with same item, reuse SKU (no increment)
-                        if row.get("Item Name") == item_name:
-                            retry = False # SKU is unique
-                            break
-                        else:
-                            # Increment number to generate unique SKU
-                            third_part += 1
-                            sku = f"{first_part}-{second_part}-{third_part:03}"
-                            break
-                else:
-                    retry = False # SKU is unique
-
-        return sku
-
-    @staticmethod
-    def set_item_status(quantity, minimum_stock, expiry_date):
-        """
-        Determine inventory status of an item based on quantity and expiry.
-
-        Args:
-            quantity (int): Current stock quantity of the item.
-            minimum_stock (int): Minimum stock threshold for warning.
-            expiry_date (date): Expiry date of the item.
-
-        Returns:
-            str: Expired, Out of Stock, Low Stock or Available status:
-        """
-        if date.today() > expiry_date:
-            return "Expired"
-        elif quantity == 0:
+        # First check if product is out of stock
+        if product.get("availability") == "out of stock":
             return "Out of Stock"
-        elif quantity <= minimum_stock:
+        
+        # Then check if batch is expired
+        if batch.get("expiry_condition"):
+            return "Expired"
+        
+        # Otherwise use product availability
+        avail = product.get("availability", "available")
+        if avail == "low stock":
             return "Low Stock"
+        elif avail == "out of stock":
+            return "Out of Stock"
         else:
             return "Available"
 
 
+class InventoryHelpers:
+    """Helper methods for inventory operations."""
+    
+    @staticmethod
+    def generate_SKU(supabase_client, category, item_name):
+        """Generate unique SKU: CATEGORY-ITEMNAME-001"""
+        first_part = category[0:4].upper()
+        
+        result = re.search(r"^([a-z]{1,4})(?:.*?(\d{1,4}))?", item_name, re.IGNORECASE)
+        if result:
+            second_part = result.group(1).upper()
+            if result.group(2):
+                second_part += result.group(2)
+        else:
+            second_part = "ITEM"
+        
+        # Find unique number
+        num = 1
+        while True:
+            sku = f"{first_part}-{second_part}-{num:03d}"
+            existing = supabase_client.table("product").select("sku, item_name").eq(
+                "sku", sku
+            ).execute()
+            
+            if not existing.data:
+                break
+            if existing.data[0].get("item_name") == item_name:
+                break
+            num += 1
+        
+        return sku
+
+
 class InventoryValidator:
-    """
-    Validator class to ensure data integrity for inventory fields.
-
-    Contains static methods to validate:
-    - Item name format and length
-    - EAN-13 barcode correctness including checksum
-    - Batch number format and uniqueness in inventory
-    - Numeric fields meet required positive value constraints
-    """
-
+    """Input validation for inventory."""
+    
     @staticmethod
     def validate_item_name(item_name):
-        """
-        Validate item name string for allowed characters and length.
-
-        Args:
-            item_name (str): Name of the inventory item.
-        """
         if not item_name:
-            raise ValueError("Item name must not be empty.")
-        elif not re.search(r"^[a-zA-Z0-9\- ]+$", item_name):
-            raise ValueError("Item name can only contain letters, numbers, spaces, or dashes.")
-        elif len(item_name) > 50:
-            raise ValueError("Item name must not exceed 50 characters.")
-
+            raise ValueError("Item name must not be empty")
+        if not re.search(r"^[a-zA-Z0-9\- ]+$", item_name):
+            raise ValueError("Item name can only contain letters, numbers, spaces, or dashes")
+        if len(item_name) > 50:
+            raise ValueError("Item name must not exceed 50 characters")
+    
     @staticmethod
     def validate_barcode(barcode):
         """
@@ -573,50 +735,12 @@ class InventoryValidator:
             raise ValueError("Invalid barcode: checksum does not match, please check the barcode number.")
 
     @staticmethod
-    def validate_batch_number(filename, barcode, batch_number):
-        """
-        Validate batch number format and ensure it is unique for the given product in the inventory file.
-
-        Args:
-            filename (str): Inventory CSV file path to check uniqueness.
-            barcode (str): Product barcode to match.
-            batch_number (str): Batch number string to validate.
-        """
-        if not batch_number:
-            raise ValueError("Batch number must not be empty.")
-        elif not re.search(r"^[a-zA-Z0-9\-]+$", batch_number):
-            raise ValueError("Batch number can only contain letters, numbers, or dashes.")
-        elif len(batch_number) > 20:
-            raise ValueError("Batch number must not exceed 20 characters.")
-
-        # Check for duplicates in inventory CSV
-        with open(filename, "r", newline="") as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                if row.get("Barcode") == barcode and row.get("Batch Number") == batch_number:
-                    raise ValueError(
-                        f"Batch number '{batch_number}' already exists for product with barcode '{barcode}'. "
-                        "\nPlease enter a unique batch number for this product.")
-
-    @staticmethod
     def validate_numeric_fields(quantity, minimum_stock, cost_per_unit, price_per_unit):
-        """
-        Validate numeric inventory fields for correct types and positive values.
-
-        Args:
-            quantity (int): Stock quantity, must be positive integer.
-            minimum_stock (int): Minimum stock threshold, must be positive integer.
-            cost_per_unit (Decimal): Cost per unit, must be positive number.
-            price_per_unit (Decimal): Price per unit, must be positive number.
-        """
         if not isinstance(quantity, int) or quantity < 0:
             raise ValueError("Quantity must be a positive integer")
-        elif not isinstance(minimum_stock, int) or minimum_stock < 0:
-            raise ValueError("Minimum stock must be a positive integer.")
-        elif not isinstance(cost_per_unit, (Decimal)) or cost_per_unit <= 0:
-            raise ValueError("Cost per unit must be a positive number greater than zero.")
-        elif not isinstance(price_per_unit, (Decimal)) or price_per_unit <= 0:
-            raise ValueError("Price per unit must be a positive number greater than zero.")
-
-
-
+        if not isinstance(minimum_stock, int) or minimum_stock < 0:
+            raise ValueError("Minimum stock must be a positive integer")
+        if not isinstance(cost_per_unit, Decimal) or cost_per_unit <= 0:
+            raise ValueError("Cost per unit must be positive")
+        if not isinstance(price_per_unit, Decimal) or price_per_unit <= 0:
+            raise ValueError("Price per unit must be positive")
