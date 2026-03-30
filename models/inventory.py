@@ -45,15 +45,14 @@ class InventoryData():
         self._local = threading.local()
 
         # barcode (int) → product_id cache shared across threads.
-        # Product IDs never change, so this is safe to share.
-        # Python dict reads/writes are GIL-protected for simple key lookups.
+        # Python dict reads/writes are for simple key lookups.
         self._product_id_cache: dict = {}
 
     @property
     def supabase(self):
         """Return a thread-local supabase client, creating one if needed."""
         if not hasattr(self._local, 'client'):
-            client = create_client(self._url, self._key)
+            client = create_client(self._url, self._key) #type: ignore
             if self._access_token and self._refresh_token:
                 try:
                     # set_session validates the JWT via a network call to /auth/v1/user.
@@ -63,7 +62,6 @@ class InventoryData():
                 except Exception:
                     # set_session timed out or failed. Fall back to setting the JWT
                     # directly on the postgrest client — no network call needed.
-                    # postgrest-py's .auth() mutates session.headers in-place and
                     # returns self, so RLS-protected queries still work correctly.
                     client.postgrest.auth(self._access_token)
             self._local.client = client
@@ -83,6 +81,7 @@ class InventoryData():
         InventoryValidator.validate_item_name(item_name)
         barcode = int(barcode.strip())
         batch_number = batch_number.strip().upper()
+        InventoryValidator.validate_batch_number(batch_number)
         InventoryValidator.validate_numeric_fields(quantity, minimum_stock, cost_per_unit, price_per_unit)
         
         # Convert prices from dollars to cents
@@ -106,9 +105,9 @@ class InventoryData():
                 "availability": "available"
             }
             product_response = self.supabase.table("product").insert(new_product).execute()
-            product_id = product_response.data[0]["id"]
+            product_id = product_response.data[0]["id"] #type: ignore
         else:
-            product_id = product.data[0]["id"]
+            product_id = product.data[0]["id"] #type: ignore
         
         # Calculate net price and expiry condition
         discount = 0  # Default no discount
@@ -139,9 +138,13 @@ class InventoryData():
                     new_batch_number=None):
         """Update an inventory batch and its product."""
         # Validate
+        new_item_name = new_item_name.strip().title()
         InventoryValidator.validate_item_name(new_item_name)
         InventoryValidator.validate_numeric_fields(new_quantity, new_minimum_stock, 
                                                     new_cost_per_unit, new_price_per_unit)
+        if new_batch_number:
+            new_batch_number = new_batch_number.strip().upper()
+            InventoryValidator.validate_batch_number(new_batch_number)
         
         # Convert to cents
         cost_cents = int(new_cost_per_unit * 100)
@@ -155,11 +158,11 @@ class InventoryData():
         if not batch.data:
             raise ValueError(f"Batch '{batch_number}' not found")
         
-        product_id = batch.data[0]["product_id"]
-        discount = batch.data[0]["discount"]
+        product_id = batch.data[0]["product_id"] #type: ignore
+        discount = batch.data[0]["discount"] #type: ignore
         
         # Calculate new values
-        net_price = price_cents * (100 - discount) // 100
+        net_price = price_cents * (100 - discount) // 100 #type: ignore
         expiry_condition = date.today() > new_expiry_date
         
         # Update batch
@@ -171,8 +174,9 @@ class InventoryData():
             "expiry_date": new_expiry_date.isoformat(),
             "expiry_condition": expiry_condition
         }
+        # Only update batch number if a new one is provided and it differs from the current
         if new_batch_number and new_batch_number != batch_number:
-            update_data["batch_number"] = new_batch_number.strip().upper()
+            update_data["batch_number"] = new_batch_number
         
         self.supabase.table("inventory").update(update_data).eq(
             "batch_number", batch_number
@@ -207,7 +211,7 @@ class InventoryData():
             if isinstance(row, dict) and row.get("product"):
                 product = row["product"]
                 # Search in category, item_name, sku, barcode, batch_number
-                searchable = f"{product.get('category', '')} {product.get('item_name', '')} {product.get('sku', '')} {str(product.get('barcode', ''))} {row.get('batch_number', '')}".lower()
+                searchable = f"{product.get('category', '')} {product.get('item_name', '')} {product.get('sku', '')} {str(product.get('barcode', ''))} {row.get('batch_number', '')}".lower()  #type: ignore
                 
                 if keyword in searchable or searchable.startswith(keyword):
                     # Calculate status for display
@@ -217,13 +221,13 @@ class InventoryData():
                     # Item Name, Batch Number, Quantity, Cost per Unit, Price per Unit,
                     # Discount, Net Price, Received Date, Expiry Date, Status
                     ui_row = [
-                        product.get("item_name"),
+                        product.get("item_name"), #type: ignore
                         row.get("batch_number"),
                         str(row.get("quantity")),
-                        f"${row.get('cost_per_unit', 0) / 100:.2f}",
-                        f"${row.get('price_per_unit', 0) / 100:.2f}",
+                        f"${row.get('cost_per_unit', 0) / 100:.2f}", #type: ignore
+                        f"${row.get('price_per_unit', 0) / 100:.2f}", #type: ignore
                         f"{row.get('discount')}%",
-                        f"${row.get('net_price', 0) / 100:.2f}",
+                        f"${row.get('net_price', 0) / 100:.2f}", #type: ignore
                         row.get("received_date"),
                         row.get("expiry_date"),
                         status
@@ -250,7 +254,7 @@ class InventoryData():
         if not product.data:
             raise ValueError("Product not found")
         
-        product_id = product.data[0]["id"]
+        product_id = product.data[0]["id"] #type: ignore
         # Cache so count_item_quantity skips the product lookup for this barcode
         self._product_id_cache[barcode] = product_id
         
@@ -269,12 +273,12 @@ class InventoryData():
         
         # Format for checkout (match what checkout expects)
         return {
-            "SKU": product.data[0]["sku"],
+            "SKU": product.data[0]["sku"], #type: ignore
             "Barcode": str(barcode),
-            "Item Name": product.data[0]["item_name"],
-            "Price per Unit": f"${batch['price_per_unit'] / 100:.2f}",
-            "Discount": f"{batch['discount']}%",
-            "Net Price": f"${batch['net_price'] / 100:.2f}"
+            "Item Name": product.data[0]["item_name"], #type: ignore
+            "Price per Unit": f"${batch['price_per_unit'] / 100:.2f}", #type: ignore
+            "Discount": f"{batch['discount']}%", #type: ignore
+            "Net Price": f"${batch['net_price'] / 100:.2f}" #type: ignore
         }
 
     def delete(self, batch_number):
@@ -287,7 +291,7 @@ class InventoryData():
         if not batch.data:
             raise ValueError(f"Batch '{batch_number}' not found")
         
-        product_id = batch.data[0]["product_id"]
+        product_id = batch.data[0]["product_id"] #type: ignore
         
         # Delete batch
         self.supabase.table("inventory").delete().eq(
@@ -310,12 +314,12 @@ class InventoryData():
         status_lower = status.lower()
 
         if status_lower == "expired":
-            # expiry_condition lives on the inventory table — filter directly
+            # expiry_condition lives on the inventory table - filter directly
             response = self.supabase.table("inventory").select(
                 "*, product(category, item_name, sku, barcode, availability, minimum_stock)"
             ).eq("expiry_condition", True).execute()
         else:
-            # Map UI label → DB availability value
+            # Map UI label -> DB availability value
             avail_map = {
                 "available":    "available",
                 "low stock":    "low stock",
@@ -325,7 +329,7 @@ class InventoryData():
             if db_avail is None:
                 return []
 
-            # Step 1: fetch only matching product IDs — small, fast query
+            # Step 1: fetch only matching product IDs
             products = self.supabase.table("product").select("id").eq(
                 "availability", db_avail
             ).execute()
@@ -333,7 +337,7 @@ class InventoryData():
             if not products.data:
                 return []
 
-            product_ids = [p["id"] for p in products.data]
+            product_ids = [p["id"] for p in products.data] #type: ignore
 
             # Step 2: fetch inventory rows for those products only
             response = self.supabase.table("inventory").select(
@@ -345,16 +349,17 @@ class InventoryData():
             if isinstance(row, dict) and row.get("product"):
                 product = row["product"]
                 calc_status = self._calculate_status(row, product)
+                # Skip rows whose calculated status doesn't match the requested filter
                 if calc_status.lower() != status_lower:
                     continue
                 ui_row = [
-                        product.get("item_name"),
+                        product.get("item_name"), #type: ignore
                         row.get("batch_number"),
                         str(row.get("quantity")),
-                        f"${row.get('cost_per_unit', 0) / 100:.2f}",
-                        f"${row.get('price_per_unit', 0) / 100:.2f}",
+                        f"${row.get('cost_per_unit', 0) / 100:.2f}", #type: ignore
+                        f"${row.get('price_per_unit', 0) / 100:.2f}", #type: ignore
                         f"{row.get('discount')}%",
-                        f"${row.get('net_price', 0) / 100:.2f}",
+                        f"${row.get('net_price', 0) / 100:.2f}", #type: ignore
                         row.get("received_date"),
                         row.get("expiry_date"),
                         calc_status
@@ -369,11 +374,12 @@ class InventoryData():
         
         total = 0
         for row in (response.data or []):
-            qty = row.get("quantity", 0)
+            qty = row.get("quantity", 0) #type: ignore
+            # Use cost price or net selling price depending on value_type
             if value_type.lower() == "cost":
-                total += qty * row.get("cost_per_unit", 0)
+                total += qty * row.get("cost_per_unit", 0) #type: ignore
             else:
-                total += qty * row.get("net_price", 0)
+                total += qty * row.get("net_price", 0) #type: ignore
         
         # Convert cents to dollars
         return f"${total / 100:.2f}"
@@ -411,7 +417,7 @@ class InventoryData():
             product = self.supabase.table("product").select("id").eq("barcode", barcode).execute()
             if not product.data:
                 return 0
-            product_id = product.data[0]["id"]
+            product_id = product.data[0]["id"] #type: ignore
             self._product_id_cache[barcode] = product_id
 
         # Sum quantities of non-expired batches
@@ -419,7 +425,7 @@ class InventoryData():
             "product_id", product_id
         ).eq("expiry_condition", False).execute()
         
-        total = sum(row.get("quantity", 0) for row in (batches.data or []))
+        total = sum(row.get("quantity", 0) for row in (batches.data or [])) #type: ignore
         return total
 
     def reduce_stock_quantity(self, barcode, quantity_to_reduce, item_name):
@@ -432,7 +438,7 @@ class InventoryData():
         if not product.data:
             raise ValueError(f"Product not found")
         
-        product_id = product.data[0]["id"]
+        product_id = product.data[0]["id"] #type: ignore
         
         # Check available stock
         total_available = self.count_item_quantity(barcode)
@@ -452,12 +458,12 @@ class InventoryData():
             if remaining <= 0:
                 break
             
-            batch_qty = batch.get("quantity", 0)
-            batch_id = batch.get("id")
+            batch_qty = batch.get("quantity", 0) #type: ignore
+            batch_id = batch.get("id") #type: ignore
             
-            if batch_qty >= remaining:
-                # This batch has enough
-                new_qty = batch_qty - remaining
+            if batch_qty >= remaining: #type: ignore
+                # This batch has enough — deduct only what's needed
+                new_qty = batch_qty - remaining #type: ignore
                 self.supabase.table("inventory").update({
                     "quantity": new_qty
                 }).eq("id", batch_id).execute()
@@ -467,7 +473,7 @@ class InventoryData():
                 self.supabase.table("inventory").update({
                     "quantity": 0
                 }).eq("id", batch_id).execute()
-                remaining -= batch_qty
+                remaining -= batch_qty #type: ignore
         
         # Update product availability
         self._update_product_availability(product_id)
@@ -502,6 +508,7 @@ class InventoryData():
         InventoryValidator.validate_item_name(item_name)
         InventoryValidator.validate_barcode(barcode)
 
+        # Prevent duplicate products with the same barcode
         existing = self.supabase.table("product").select("id").eq(
             "barcode", int(barcode)
         ).execute()
@@ -534,6 +541,7 @@ class InventoryData():
         item_name = item_name.strip().title()
         InventoryValidator.validate_item_name(item_name)
 
+        # Regenerate SKU since category or item name may have changed
         new_sku = InventoryHelpers.generate_SKU(self.supabase, category, item_name)
         result = self.supabase.table("product").update({
             "category": category,
@@ -545,7 +553,7 @@ class InventoryData():
         if not result.data:
             raise ValueError("Product not found.")
 
-    def apply_inventory_discount(self, barcode, batch_number, discount_amount):
+    def apply_inventory_discount(self, batch_number, discount_amount):
         """Apply discount to a batch."""
         # Get batch
         batch = self.supabase.table("inventory").select("price_per_unit").eq(
@@ -555,7 +563,7 @@ class InventoryData():
         if not batch.data:
             raise ValueError("Batch not found")
         
-        price_cents = batch.data[0]["price_per_unit"]
+        price_cents = batch.data[0]["price_per_unit"] #type: ignore
         net_price = price_cents * (100 - discount_amount) // 100
         
         # Update
@@ -574,28 +582,29 @@ class InventoryData():
         batches = self.supabase.table("inventory").select("id, expiry_date").execute()
         expired_ids, fresh_ids = [], []
         for batch in (batches.data or []):
-            expiry = datetime.fromisoformat(batch["expiry_date"]).date()
-            (expired_ids if today > expiry else fresh_ids).append(batch["id"])
+            expiry = datetime.fromisoformat(batch["expiry_date"]).date() #type: ignore
+            (expired_ids if today > expiry else fresh_ids).append(batch["id"]) #type: ignore
         if expired_ids:
             self.supabase.table("inventory").update({"expiry_condition": True}).in_("id", expired_ids).execute()
         if fresh_ids:
             self.supabase.table("inventory").update({"expiry_condition": False}).in_("id", fresh_ids).execute()
 
         all_inv = self.supabase.table("inventory").select("product_id, quantity, expiry_condition").execute()
+        # Accumulate non-expired stock totals per product
         stock_by_product: dict = defaultdict(int)
         for row in (all_inv.data or []):
-            if not row.get("expiry_condition"):
-                stock_by_product[row["product_id"]] += row.get("quantity", 0)
+            if not row.get("expiry_condition"): #type: ignore
+                stock_by_product[row["product_id"]] += row.get("quantity", 0) #type: ignore
 
         products = self.supabase.table("product").select("id, minimum_stock").execute()
         out_ids, low_ids, avail_ids = [], [], []
         for product in (products.data or []):
-            pid = product["id"]
+            pid = product["id"] #type: ignore
             qty = stock_by_product.get(pid, 0)
-            min_s = product.get("minimum_stock", 0)
+            min_s = product.get("minimum_stock", 0) #type: ignore
             if qty == 0:
                 out_ids.append(pid)
-            elif qty <= min_s:
+            elif qty <= min_s: #type: ignore
                 low_ids.append(pid)
             else:
                 avail_ids.append(pid)
@@ -617,14 +626,14 @@ class InventoryData():
         if not product.data:
             return
         
-        min_stock = product.data[0]["minimum_stock"]
+        min_stock = product.data[0]["minimum_stock"] #type: ignore
         
         # Sum all non-expired batch quantities
         batches = self.supabase.table("inventory").select("quantity").eq(
             "product_id", product_id
         ).eq("expiry_condition", False).execute()
         
-        total_qty = sum(row.get("quantity", 0) for row in (batches.data or []))
+        total_qty = sum(row.get("quantity", 0) for row in (batches.data or [])) #type: ignore
         
         # Determine availability
         if total_qty == 0:
@@ -689,6 +698,7 @@ class InventoryHelpers:
             if not existing.data:
                 break
             if existing.data[0].get("item_name") == item_name:
+                # SKU already belongs to this item — reuse it
                 break
             num += 1
         
@@ -744,3 +754,27 @@ class InventoryValidator:
             raise ValueError("Cost per unit must be positive")
         if not isinstance(price_per_unit, Decimal) or price_per_unit <= 0:
             raise ValueError("Price per unit must be positive")
+
+    @staticmethod
+    def validate_batch_number(batch_number):
+        """
+        Validate a batch number for correct format and length.
+
+        Batch numbers must be non-empty, contain only uppercase letters,
+        digits, and dashes, and must not exceed 20 characters. They are
+        expected to be pre-stripped and uppercased by the caller before
+        this method is invoked.
+
+        Args:
+            batch_number (str): The batch number string to validate.
+
+        Raises:
+            ValueError: If the batch number is empty, contains invalid
+                        characters, or exceeds the maximum length.
+        """
+        if not batch_number:
+            raise ValueError("Batch number must not be empty")
+        if not re.search(r"^[A-Z0-9\-]+$", batch_number):
+            raise ValueError("Batch number can only contain uppercase letters, digits, or dashes")
+        if len(batch_number) > 20:
+            raise ValueError("Batch number must not exceed 20 characters")

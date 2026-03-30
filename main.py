@@ -169,9 +169,9 @@ class MainWindow(QMainWindow):
 
         # Table setup and data loading
         self.set_table(self.ui.user_table)
-        self.load_table(self.ui.user_table, "users")
+        self.load_table(self.ui.user_table, USER_DATA)
         self.set_table(self.ui.inventory_table)
-        self.load_table(self.ui.inventory_table, "inventory")
+        self.load_table(self.ui.inventory_table, INVENTORY_DATA)
         self.set_table(self.ui.sales_history_table)
         self.load_table(self.ui.sales_history_table, SALES_DATA)
         self.set_table(self.ui.sales_summary_table)
@@ -222,7 +222,7 @@ class MainWindow(QMainWindow):
         self.ui.stackedWidget.setCurrentIndex(0)
         self.ui.barcode_lineEdit.setFocus()  # Immediate focus for scanning barcode
 
-    # ── threading helpers ─────────────────────────────────────────────────────
+    # -- threading helpers -----------------------------------------------------
 
     def _run_worker(self, fn, *args, on_result=None, on_error=None, **kwargs):
         """Start a background worker and keep relay alive until it finishes."""
@@ -230,6 +230,7 @@ class MainWindow(QMainWindow):
 
         def wrap(callback):
             def wrapped(value):
+                # Remove the thread from tracking once it completes
                 self._threads.pop(key_holder[0], None)
                 if callback:
                     callback(value)
@@ -242,7 +243,8 @@ class MainWindow(QMainWindow):
             **kwargs
         )
         key = id(relay)
-        key_holder[0] = key
+        key_holder[0] = key #type: ignore
+        # Store thread and relay to prevent garbage collection before completion
         self._threads[key] = (thread, relay)
         return thread
 
@@ -250,7 +252,7 @@ class MainWindow(QMainWindow):
         """Run a DB operation in the background with no UI callback."""
         self._run_worker(fn, *args, **kwargs)
 
-    # ─────────────────────────────────────────────────────────────────────────
+    # -------------------------------------------------------------------------
     
     def switch_to_inventory_page(self):
         """Switch the stacked widget to show the inventory page."""
@@ -350,6 +352,7 @@ class MainWindow(QMainWindow):
             quantity = 1
             for index, row in enumerate(self.checkout_list):
                 if barcode == row["Barcode"]:
+                    # Item already in checkout — increment quantity and recalculate line total
                     repeated_item = True
                     quantity = int(row["Quantity"]) + 1
                     line_total = quantity * Decimal(item.get("Net Price").strip("$").replace(",", ""))  # type: ignore
@@ -562,6 +565,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Stock Limit Reached",
                                     "Cannot add more of this item. It exceeds available stock.")
                 return
+            # Free unit has 100% discount and $0 net price so it doesn't affect the total
             self.checkout_list.append({"Username": self.username,
                                        "SKU": item.get("SKU"),
                                        "Barcode": item.get("Barcode"),
@@ -714,6 +718,7 @@ class MainWindow(QMainWindow):
             self.load_table(self.ui.inventory_table, INVENTORY_DATA)
             self.set_header_info_texts()
             self.ui.barcode_lineEdit.setFocus()
+            # Refresh all report tables to reflect the new sale
             self.filter_sales_history_table()
             self.filter_sales_summary_table()
             self.filter_top_employees_table()
@@ -744,7 +749,7 @@ class MainWindow(QMainWindow):
         table_row_index = self.ui.inventory_table.currentRow()
 
         if table_row_index != -1:
-            batch_number = self.ui.inventory_table.item(table_row_index, 1).text()  # col 1 = Batch Number
+            batch_number = self.ui.inventory_table.item(table_row_index, 1).text()  # col 1 = Batch Number #type: ignore
             popup = DiscountItem(batch_number, inventory_data=self.inventory_data)
             popup.exec()
             # Refresh inventory after discount change
@@ -1101,7 +1106,7 @@ class MainWindow(QMainWindow):
             if table_name == "users":
                 response = self.user_data.supabase.table("users").select("username, role, created_at").execute()
                 return [
-                    [row.get("username"), row.get("role"), row.get("created_at")]
+                    [row.get("username"), row.get("role").capitalize(), row.get("created_at")] #type: ignore
                     for row in (response.data or []) if isinstance(row, dict)
                 ]
             elif table_name == "inventory":
@@ -1121,6 +1126,7 @@ class MainWindow(QMainWindow):
                         break
                     display_value = str(value) if value is not None else ""
                     table_widget.setItem(row_index, column_index, QTableWidgetItem(display_value))
+                # Apply status color coding only for the inventory table
                 if table_widget is self.ui.inventory_table and len(row) > 9:
                     self._color_inventory_row(table_widget, row_index, str(row[9]))
 
@@ -1183,9 +1189,15 @@ class MainWindow(QMainWindow):
         Args:
             role (str): User role.
         """
-        if role == "Cashier":
+        if role == "cashier":
             self.ui.inventory_btn.hide()
             self.ui.reports_btn.hide()
             self.ui.users_btn.hide()
-        elif role == "Manager":
+        elif role == "manager":
+            self.ui.inventory_btn.show()
+            self.ui.reports_btn.show()
             self.ui.users_btn.hide()
+        else:  # Admin
+            self.ui.inventory_btn.show()
+            self.ui.reports_btn.show()
+            self.ui.users_btn.show()

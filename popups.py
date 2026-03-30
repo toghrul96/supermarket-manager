@@ -41,8 +41,7 @@ class AddNewItem(QDialog):
         self.ui = Ui_AddItemPopup()
         self.ui.setupUi(self)
 
-        # setupUi hardcodes setMinimumSize(514,733) + setMaximumSize(514,733).
-        # Override immediately so _resize_to_content works from a clean state.
+        # Override popup size immediately so _resize_to_content works from a clean state.
         self.setMinimumSize(0, 0)
         self.setMaximumSize(16777215, 16777215)
 
@@ -79,7 +78,7 @@ class AddNewItem(QDialog):
         if not self._skip_two_step:
             self._set_lookup_mode()
 
-    # ── helpers ──────────────────────────────────────────────────────────────
+    # -- helpers -------------------------------------------------------------- 
 
     def _resize_to_content(self):
         """Resize to visible content, clamp to screen, lock, and center — zero grow loop.
@@ -110,7 +109,7 @@ class AddNewItem(QDialog):
         self.setMaximumSize(16777215, 16777215)
 
         # 2 — force layout to recompute sizes in memory (no resize event)
-        self.layout().activate()
+        self.layout().activate() #type: ignore
 
         # 3 — read ideal size without triggering any resize event
         hint = self.sizeHint()
@@ -153,7 +152,7 @@ class AddNewItem(QDialog):
         self.ui.add_item_btn.clicked.connect(slot)
         self._btn_connected = True
 
-    # ── states ───────────────────────────────────────────────────────────────
+    # -- states ---------------------------------------------------------------
 
     def _set_lookup_mode(self):
         """Step 1: Show only barcode field and Look Up button."""
@@ -207,7 +206,7 @@ class AddNewItem(QDialog):
         self._reconnect_btn(self.handle_add_item)
         QTimer.singleShot(0, self._resize_to_content)
 
-    # ── actions ──────────────────────────────────────────────────────────────
+    # -- actions --------------------------------------------------------------
 
     def _lookup_barcode(self):
         """Look up barcode in product table and switch to the appropriate mode."""
@@ -281,7 +280,7 @@ class AddNewItem(QDialog):
             self.ui.add_item_btn.setEnabled(True)
             self.ui.add_item_btn.setText(
                 "Add Batch" if self._found_product else "Add New Item")
-            QMessageBox.warning(self, "Add Item Failed", msg)
+            QMessageBox.warning(self, "Add Item Failed", msg.strip().splitlines()[-1])
 
         self._thread, self._relay = run_worker(do_add, on_result=on_result, on_error=on_error)
 
@@ -338,7 +337,7 @@ class AddNewUser(QDialog):
         def on_error(msg):
             self.ui.add_user_btn.setEnabled(True)
             self.ui.add_user_btn.setText("Add User")
-            QMessageBox.warning(self, "Add User Failed", msg)
+            QMessageBox.warning(self, "Add User Failed", msg.strip().splitlines()[-1])
 
         self._thread, self._relay = run_worker(do_add, on_result=on_result, on_error=on_error)
 
@@ -466,7 +465,7 @@ class UpdateItem(AddNewItem):
         def on_error(msg):
             self.ui.add_item_btn.setEnabled(True)
             self.ui.add_item_btn.setText("Update Item")
-            QMessageBox.warning(self, "Update Item Failed", msg)
+            QMessageBox.warning(self, "Update Item Failed", msg.strip().splitlines()[-1])
 
         self._thread, self._relay = run_worker(do_update, on_result=on_result, on_error=on_error)
 
@@ -542,7 +541,7 @@ class UpdateUser(AddNewUser):
         def on_error(msg):
             self.ui.add_user_btn.setEnabled(True)
             self.ui.add_user_btn.setText("Update User")
-            QMessageBox.warning(self, "Update User Failed", msg)
+            QMessageBox.warning(self, "Update User Failed", msg.strip().splitlines()[-1])
 
         self._thread, self._relay = run_worker(do_update, on_result=on_result, on_error=on_error)
 
@@ -585,7 +584,7 @@ class DiscountItem(QDialog):
 
         def do_discount():
             self.inventory_data.apply_inventory_discount(
-                self.batch_number, discount_amount)
+                self.batch_number, discount_amount) #type: ignore
 
         def on_result(_):
             self.ui.apply_discount_btn.setEnabled(True)
@@ -596,7 +595,7 @@ class DiscountItem(QDialog):
         def on_error(msg):
             self.ui.apply_discount_btn.setEnabled(True)
             self.ui.apply_discount_btn.setText("Apply Discount")
-            QMessageBox.warning(self, "Operation Failed", msg)
+            QMessageBox.warning(self, "Operation Failed", msg.strip().splitlines()[-1])
 
         self._thread, self._relay = run_worker(do_discount, on_result=on_result, on_error=on_error)
 
@@ -620,7 +619,7 @@ class SetQuantity(QDialog):
         self.setWindowTitle("Set Quantity")
         self.ui.percentage_label.setText("")
         self.ui.discount_lineEdit.setPlaceholderText("Enter quantity...")
-        self.ui.discount_lineEdit.setAlignment(Qt.AlignLeft)
+        self.ui.discount_lineEdit.setAlignment(Qt.AlignLeft) #type: ignore
         self.ui.apply_discount_btn.setText("Set Quantity")
         self.setFixedSize(220, 115)
         self.ui.apply_discount_btn.clicked.connect(self.perform_set_quantity)
@@ -699,7 +698,7 @@ class AccountInfo(QDialog):
         self.ui = Ui_AccountInformation()
         self.ui.setupUi(self)
         self.username = username
-        self.role = role
+        self.role = role.capitalize()
         self.log_out = False
 
         self.ui.username_lbl.setText(self.username)
@@ -716,7 +715,7 @@ class AccountInfo(QDialog):
             self.log_out = True
             self.close()
 
-# ── Products popup ─────────────────────────────────────────────────────────────
+# -- Products popup -------------------------------------------------------------
 
 _PRODUCT_CATEGORIES = [
     "Bakery", "Beverages", "Canned Goods", "Dairy", "Deli",
@@ -966,7 +965,7 @@ class UpdateProduct(QDialog):
         self._thread, self._relay = run_worker(do_update, on_result=on_result, on_error=on_error)
 
 
-# ── Return Item popup ──────────────────────────────────────────────────────────
+# -- Return Item popup ----------------------------------------------------------
 
 _RETURN_14_DAYS = 14   # maximum days after sale that a return is allowed
 
@@ -1119,7 +1118,7 @@ class ReturnItemPopup(QDialog):
         self._back_btn.clicked.connect(self._go_back)
         self._return_btn.clicked.connect(self._do_return)
 
-    # ── page transitions ──────────────────────────────────────────────────────
+    # -- page transitions ------------------------------------------------------
 
     def showEvent(self, event):
         """Always start on page 1 when the dialog is (re)opened."""
@@ -1163,7 +1162,7 @@ class ReturnItemPopup(QDialog):
             screen.y() + (screen.height() - self.height()) // 2,
         )
 
-    # ── data ──────────────────────────────────────────────────────────────────
+    # -- data ------------------------------------------------------------------
 
     def _lookup_order(self):
         order_id = self._order_id_edit.text().strip().upper()
@@ -1207,7 +1206,7 @@ class ReturnItemPopup(QDialog):
 
         self._thread, self._relay = run_worker(fetch, on_result=on_result, on_error=on_error)
 
-    # ── table population ──────────────────────────────────────────────────────
+    # -- table population ------------------------------------------------------
 
     def _populate_items_table(self, items):
         self._items_table.setRowCount(len(items))
@@ -1237,7 +1236,7 @@ class ReturnItemPopup(QDialog):
             self._items_table.setCellWidget(row_idx, 5, sb)
             self._spinboxes.append(sb)
 
-    # ── return action ─────────────────────────────────────────────────────────
+    # -- return action ---------------------------------------------------------
 
     def _do_return(self):
         # Collect items where return qty > 0
@@ -1275,7 +1274,7 @@ class ReturnItemPopup(QDialog):
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return   # stay on page 2
 
-        # ── process return in background ──────────────────────────────────────
+        # -- process return in background --------------------------------------
         order_id        = self._order_items[0]["order_id"]
         refund_str      = f"${total_refund:,.2f}"
         self._return_btn.setEnabled(False)
@@ -1398,7 +1397,7 @@ class ProductsPopup(QDialog):
         self.status_lbl.setStyleSheet("color: #7f8c8d; font-size: 10pt;")
         layout.addWidget(self.status_lbl)
 
-    # ── data ──────────────────────────────────────────────────────────────────
+    # -- data ------------------------------------------------------------------
 
     def load_products(self):
         """Fetch all products from DB and populate the table."""
@@ -1433,7 +1432,7 @@ class ProductsPopup(QDialog):
 
         self._thread, self._relay = run_worker(fetch, on_result=on_result, on_error=on_error)
 
-    # ── helpers ───────────────────────────────────────────────────────────────
+    # -- helpers ---------------------------------------------------------------
 
     def _populate_table(self, products):
         """Render a list of product dicts into the table."""
@@ -1488,7 +1487,7 @@ class ProductsPopup(QDialog):
         """Clear the search box and restore the full product list."""
         self.search_edit.clear()
 
-    # ── actions ───────────────────────────────────────────────────────────────
+    # -- actions ---------------------------------------------------------------
 
     def _open_add_dialog(self):
         dlg = AddProduct(self.inventory_data, parent=self)
