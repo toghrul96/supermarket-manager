@@ -698,7 +698,7 @@ class AccountInfo(QDialog):
         self.ui = Ui_AccountInformation()
         self.ui.setupUi(self)
         self.username = username
-        self.role = role.capitalize()
+        self.role = role.capitalize() if role else "Unknown"
         self.log_out = False
 
         self.ui.username_lbl.setText(self.username)
