@@ -4,13 +4,26 @@ from datetime import date
 from dotenv import load_dotenv
 from supabase import create_client
 
+
+import sys as _sys
+import os as _os
+
+def _load_env():
+    """Load .env from the correct path whether running as script or frozen exe."""
+    from dotenv import load_dotenv
+    if getattr(_sys, 'frozen', False):
+        base_path = _sys._MEIPASS  # type: ignore
+    else:
+        base_path = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    load_dotenv(_os.path.join(base_path, '.env'))
+
 class UserDatabase:
     """Manages users securely with role-based access and Supabase integration."""
 
     def __init__(self):
         """Initialize Supabase connection and thread-local storage."""
         import threading
-        load_dotenv()
+        _load_env()
         
         self._url = os.getenv("SUPABASE_URL")
         self._key = os.getenv("SUPABASE_KEY")

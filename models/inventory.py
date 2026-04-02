@@ -5,6 +5,19 @@ from decimal import Decimal
 from dotenv import load_dotenv
 from supabase import create_client
 
+
+import sys as _sys
+import os as _os
+
+def _load_env():
+    """Load .env from the correct path whether running as script or frozen exe."""
+    from dotenv import load_dotenv
+    if getattr(_sys, 'frozen', False):
+        base_path = _sys._MEIPASS  # type: ignore
+    else:
+        base_path = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    load_dotenv(_os.path.join(base_path, '.env'))
+
 class InventoryData():
     """
     Handles inventory management with product and inventory (batch) tables.
@@ -29,7 +42,7 @@ class InventoryData():
             refresh_token (str): Refresh token paired with access_token.
         """
         import threading
-        load_dotenv()
+        _load_env()
         self._url = os.getenv("SUPABASE_URL")
         self._key = os.getenv("SUPABASE_KEY")
         if not self._url or not self._key:

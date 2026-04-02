@@ -8,6 +8,19 @@ from supabase import create_client
 from dotenv import load_dotenv
 
 
+
+import sys as _sys
+import os as _os
+
+def _load_env():
+    """Load .env from the correct path whether running as script or frozen exe."""
+    from dotenv import load_dotenv
+    if getattr(_sys, 'frozen', False):
+        base_path = _sys._MEIPASS  # type: ignore
+    else:
+        base_path = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    load_dotenv(_os.path.join(base_path, '.env'))
+
 class SalesData:
     """
     Manage sales records stored in Supabase.
@@ -25,7 +38,7 @@ class SalesData:
             refresh_token (str): Supabase refresh token from the logged-in session.
         """
         # Load environment variables from the .env file
-        load_dotenv()
+        _load_env()
         # Read Supabase connection credentials from the environment
         self._url = os.getenv("SUPABASE_URL")
         self._key = os.getenv("SUPABASE_KEY")
