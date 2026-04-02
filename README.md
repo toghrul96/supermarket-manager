@@ -1,4 +1,4 @@
-# Supermarket Manager
+# Supermarket Management System
 
 **Supermarket Management System** is a desktop application built with Python and PySide6 for managing day-to-day supermarket operations — from checkout and inventory to sales reports and staff accounts. It connects to a Supabase backend and enforces role-based access so each staff member only sees what they need.
 
