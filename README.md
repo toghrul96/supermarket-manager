@@ -68,7 +68,7 @@
 
 ### Option 2 — Windows Installer
 
-Download the latest `Supermarket.Management.System-Setup.exe` from the [Releases](https://github.com/toghrul96/Supermarket-Management-System/releases/tag/v1.0) page and run it. No Python installation required.
+Download the latest `Supermarket.Management.System-Setup.exe` from the [Releases](https://github.com/toghrul96/Supermarket-Management-System/releases/) page and run it. No Python installation required.
 
 ---
 
