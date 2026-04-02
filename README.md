@@ -8,11 +8,14 @@
 
 ### Application
 ![App Screenshot](screenshots/Screenshot_1.jpg)
+![App Screenshot](screenshots/Screenshot_2.jpg)
+![App Screenshot](screenshots/Screenshot_3.jpg)
+![App Screenshot](screenshots/Screenshot_4.jpg)
 
 &nbsp;
 
 ### Database Schema
-![Database Schema](screenshots/Screenshot_2.jpg)
+![Database Schema](screenshots/Screenshot_5.jpg)
 
 ---
 
